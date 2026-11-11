@@ -1,0 +1,52 @@
+# ~/.vm-admin/config.yml (or $VMADMIN_CONFIG). Hosts are not configured here: add them in the UI
+# (they go to ~/.vm-admin/fleet.yml) or hand-edit fleet.yml, see fleet.example.yml.
+vmadmin:
+  ui:
+    auth: none            # none: no sign-in, this machine only (SSH tunnel from elsewhere) | saml: planned
+
+  # MCP endpoint (/mcp) for Claude Code. Off unless a token is configured (env: or path:, 24+ chars).
+  mcp:
+    token-ref: path:~/.vm-admin/mcp.token
+
+  # Optional: let hosts use token-ref: vault:<path>#<field> (KV v2)
+  # vault:
+  #   address: https://vault.example.com:8200
+  #   token-ref: env:VAULT_TOKEN
+  #   kv-mount: secret
+
+  status:
+    interval: 30s         # background health check of every host
+    timeout: 5s
+
+  # Extra regexes that make a command need confirmation (on top of the built-in list)
+  guard:
+    confirm-patterns:
+      - '\bterraform\s+(destroy|apply)\b'
+      - '\bhelm\s+uninstall\b'
+
+  # One-click commands in the Terminal and Broadcast views (replaces the defaults when set)
+  # snippets:
+  #   - name: Nginx status
+  #     command: systemctl status nginx --no-pager
+  #   - name: Disk usage
+  #     command: df -h
+
+  # History for the Overview charts
+  metrics:
+    interval: 5m
+    retention: 7d
+
+  # Alerts: audit log, nav badge and (optional) webhook. webhook-ref takes env:, path: or vault:.
+  alerts:
+    # webhook-ref: env:VMADMIN_SLACK_WEBHOOK
+    format: slack           # slack ({"text": ...}) | json ({state, host, kind, message, since, resolvedAt})
+    offline-after: 2m
+    disk-pct: 90
+    mem-pct: 95
+    load-per-cpu: 2.0
+    failed-units: true
+    reboot-required: false
+
+# Listen address and port (defaults: 127.0.0.1:8767). Keep it on loopback while auth is none.
+# server:
+#   port: 8767

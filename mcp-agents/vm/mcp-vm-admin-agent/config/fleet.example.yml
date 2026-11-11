@@ -1,0 +1,22 @@
+# ~/.vm-admin/fleet.yml: normally written by the UI. Never put tokens in this file, only references:
+#   store:<name>        token pasted in the UI, kept in ~/.vm-admin/tokens.yml (mode 600)
+#   vault:<path>#<field> HashiCorp Vault KV v2 (configure vmadmin.vault)
+#   env:<VAR>           environment variable of the control centre
+#   path:<file>         file containing the token
+hosts:
+- name: web-01
+  url: http://192.168.1.50:8765
+  token-ref: store:web-01
+  group: prod
+  tags: [nginx, eu]
+- name: db-01
+  url: https://192.168.1.60:8765        # agent installed with --tls
+  token-ref: vault:vms/db-01#token
+  group: prod
+  read-only: true                       # browse and read only: no commands, edits or upgrades
+  ca-cert-ref: path:/home/me/certs/db-01.pem
+- name: lab-vm
+  url: http://192.168.1.122:8765
+  token-ref: env:LAB_VM_TOKEN
+  group: lab
+  notes: Kubespray test box

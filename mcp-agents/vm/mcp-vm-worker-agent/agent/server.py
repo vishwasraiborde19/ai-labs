@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextvars
+import errno
 import fcntl
 import getpass
 import hashlib
@@ -49,7 +50,8 @@ from mcp.server.fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-VERSION = "2.0.0"
+VERSION = "2.2.0"
+FEATURES = ["fs", "pty"]  # optional APIs, advertised in /health and server_info
 BASE = Path(__file__).resolve().parent
 PLUGINS, JOBS = BASE / "plugins", BASE / "jobs"
 TOKENS_FILE, ADMIN_FILE = BASE / "tokens.json", BASE / "admin.json"
@@ -502,6 +504,12 @@ async def read_file(path: str, max_bytes: int = 200_000) -> str:
 
 
 @mcp.tool()
+async def list_dir(path: str = "", hidden: bool = True) -> dict:
+    """List a directory on this VM: name, type, size, mode, owner, mtime of each entry (dirs first)."""
+    return await asyncio.to_thread(_fs_list, path or DEFAULT_CWD, hidden)
+
+
+@mcp.tool()
 async def write_file(path: str, content: str, backup: bool = True) -> dict:
     """Write a text file on this VM (creates parent dirs). Keeps <file>.bak-<ts> if backup=True."""
     p = Path(path).expanduser()
@@ -593,7 +601,7 @@ async def server_info() -> dict:
     return {"agent": "mcp-vm-installer-agent", "name": AGENT_NAME, "version": VERSION,
             "uptime_s": int(time.time() - STARTED), "default_cwd": DEFAULT_CWD, "host": socket.gethostname(),
             "plugins": sorted(LOADED), "active_tokens": sum(t["status"] == "active" for t in TOKENS.list()),
-            "python": sys.version.split()[0], "base": str(BASE), "tls": bool(TLS_CERT)}
+            "python": sys.version.split()[0], "base": str(BASE), "tls": bool(TLS_CERT), "features": FEATURES}
 
 
 # ----------------------------------------------------------------- REST API (scope: rest)
@@ -607,7 +615,7 @@ async def _body(req: Request) -> dict:
 
 @mcp.custom_route("/health", methods=["GET"])
 async def rest_health(req: Request):
-    return JSONResponse({"ok": True, "agent": "mcp-vm-installer-agent", "version": VERSION})
+    return JSONResponse({"ok": True, "agent": "mcp-vm-installer-agent", "version": VERSION, "features": FEATURES})
 
 
 @mcp.custom_route("/api/run", methods=["POST"])
@@ -644,6 +652,474 @@ async def rest_plugin(req: Request):
 @mcp.custom_route("/api/info", methods=["GET"])
 async def rest_info(req: Request):
     return JSONResponse(await server_info())
+
+
+# ----------------------------------------------------------------- file API (scope: rest)
+# Used by mcp-vm-admin-agent's file browser. Paths are absolute, or relative to AGENT_DEFAULT_CWD.
+MAX_UPLOAD = int(os.environ.get("AGENT_MAX_UPLOAD_MB", "100")) * 1024 * 1024
+MAX_LIST = 5000
+# never deleted, even with recursive=1
+PROTECTED = {"/", "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/lib32", "/lib64", "/opt", "/proc",
+             "/root", "/run", "/sbin", "/srv", "/sys", "/tmp", "/usr", "/var", str(Path.home()), str(BASE)}
+
+
+def _fs_path(raw) -> Path:
+    raw = str(raw or "").strip()
+    if not raw:
+        raise ValueError("path required")
+    if "\0" in raw:
+        raise ValueError("bad path")
+    p = Path(raw).expanduser()
+    if not p.is_absolute():
+        p = Path(DEFAULT_CWD) / p
+    return Path(os.path.normpath(p))
+
+
+_NAMES: dict = {}
+
+
+def _owner(kind: str, num: int) -> str:
+    key = (kind, num)
+    if key not in _NAMES:
+        try:
+            import grp
+            import pwd
+            _NAMES[key] = pwd.getpwuid(num).pw_name if kind == "u" else grp.getgrgid(num).gr_name
+        except (KeyError, ImportError):
+            _NAMES[key] = str(num)
+    return _NAMES[key]
+
+
+def _entry(p: Path, name: str | None = None) -> dict:
+    import stat as st
+    s = os.lstat(p)
+    kind = "dir" if st.S_ISDIR(s.st_mode) else "file" if st.S_ISREG(s.st_mode) \
+        else "link" if st.S_ISLNK(s.st_mode) else "other"
+    e = {"name": name if name is not None else (p.name or str(p)), "type": kind, "size": s.st_size,
+         "mode": st.filemode(s.st_mode), "mtime": int(s.st_mtime),
+         "owner": _owner("u", s.st_uid), "group": _owner("g", s.st_gid)}
+    if kind == "link":
+        try:
+            e["target"] = os.readlink(p)
+            e["target_type"] = "dir" if p.is_dir() else "file" if p.exists() else "missing"
+        except OSError:
+            e["target_type"] = "missing"
+    return e
+
+
+def _fs_error(e: Exception) -> JSONResponse:
+    code = {FileNotFoundError: 404, PermissionError: 403, FileExistsError: 409,
+            IsADirectoryError: 400, NotADirectoryError: 400, ValueError: 400}.get(type(e), 400)
+    if isinstance(e, OSError) and e.errno == errno.ENOTEMPTY:
+        code = 409
+    msg = f"{e.strerror}: {e.filename}" if isinstance(e, OSError) and e.strerror else str(e)
+    return JSONResponse({"error": msg}, code)
+
+
+def _fs_list(path: str, hidden: bool = True) -> dict:
+    p = _fs_path(path)
+    if not p.is_dir():
+        raise NotADirectoryError(20, "Not a directory", str(p))
+    entries, truncated = [], False
+    with os.scandir(p) as it:
+        for de in it:
+            if not hidden and de.name.startswith("."):
+                continue
+            if len(entries) >= MAX_LIST:
+                truncated = True
+                break
+            try:
+                entries.append(_entry(Path(de.path), de.name))
+            except OSError:
+                entries.append({"name": de.name, "type": "other", "error": "cannot stat"})
+    entries.sort(key=lambda e: (not (e["type"] == "dir" or e.get("target_type") == "dir"), e["name"].lower()))
+    audit.info("FS list %s (%d entries)", p, len(entries))
+    return {"path": str(p), "parent": str(p.parent) if p != p.parent else None,
+            "entries": entries, "truncated": truncated}
+
+
+def _fs_read(path: str, max_bytes: int = 1_000_000) -> dict:
+    p = _fs_path(path)
+    max_bytes = max(1, min(int(max_bytes), 5_000_000))
+    if p.is_dir():
+        raise IsADirectoryError(21, "Is a directory", str(p))
+    size = p.stat().st_size
+    with open(p, "rb") as f:
+        data = f.read(max_bytes)
+    audit.info("FS read %s (%d of %d bytes)", p, len(data), size)
+    res = {"path": str(p), "size": size, "truncated": size > len(data), "binary": False, "content": None}
+    if b"\0" in data[:8192]:
+        res["binary"] = True
+        return res
+    try:
+        res["content"] = data.decode("utf-8")
+    except UnicodeDecodeError as e:
+        if res["truncated"] and e.start >= len(data) - 4:  # cut through a multi-byte character
+            res["content"] = data[:e.start].decode("utf-8")
+        else:
+            res["binary"] = True
+    return res
+
+
+def _fs_write(path: str, data: bytes, backup: bool = True, overwrite: bool = True, mkdirs: bool = False) -> dict:
+    p = _fs_path(path)
+    if p.is_dir():
+        raise IsADirectoryError(21, "Is a directory", str(p))
+    exists = p.exists()
+    if exists and not overwrite:
+        raise FileExistsError(17, "File exists", str(p))
+    if mkdirs:
+        p.parent.mkdir(parents=True, exist_ok=True)
+    bak = None
+    if exists and backup:
+        bak = f"{p}.bak-{time.strftime('%Y%m%d-%H%M%S')}"
+        shutil.copy2(p, bak)
+    mode = p.stat().st_mode & 0o7777 if exists else None
+    tmp = p.with_name(f".{p.name}.upload-{secrets.token_hex(4)}")
+    try:
+        with open(tmp, "wb") as f:
+            f.write(data)
+        if mode is not None:
+            os.chmod(tmp, mode)
+        os.replace(tmp, p)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+    audit.info("FS write %s (%d bytes) backup=%s", p, len(data), bak)
+    return {"written": str(p), "bytes": len(data), "backup": bak}
+
+
+def _fs_mkdir(path: str) -> dict:
+    p = _fs_path(path)
+    p.mkdir(parents=True, exist_ok=False)
+    audit.info("FS mkdir %s", p)
+    return {"created": str(p)}
+
+
+def _fs_rename(src: str, dst: str, overwrite: bool = False) -> dict:
+    a, b = _fs_path(src), _fs_path(dst)
+    if str(a) in PROTECTED:
+        raise PermissionError(1, "Protected path", str(a))
+    if not os.path.lexists(a):
+        raise FileNotFoundError(2, "No such file or directory", str(a))
+    if os.path.lexists(b) and not overwrite:
+        raise FileExistsError(17, "File exists", str(b))
+    os.replace(a, b) if overwrite else os.rename(a, b)
+    audit.info("FS rename %s -> %s", a, b)
+    return {"from": str(a), "to": str(b)}
+
+
+def _fs_delete(path: str, recursive: bool = False) -> dict:
+    p = _fs_path(path)
+    if str(p) in PROTECTED or str(p.resolve()) in PROTECTED:
+        raise PermissionError(1, "Protected path, refusing to delete", str(p))
+    if p.is_symlink() or (p.exists() and not p.is_dir()):
+        p.unlink()
+    elif p.is_dir():
+        if recursive:
+            shutil.rmtree(p)
+        else:
+            p.rmdir()  # OSError "Directory not empty" unless recursive
+    else:
+        raise FileNotFoundError(2, "No such file or directory", str(p))
+    audit.info("FS delete %s recursive=%s", p, recursive)
+    return {"deleted": str(p)}
+
+
+def _flag(req: Request, name: str, default: bool) -> bool:
+    v = req.query_params.get(name)
+    return default if v is None else v.lower() in ("1", "true", "yes")
+
+
+@mcp.custom_route("/api/fs/list", methods=["GET"])
+async def rest_fs_list(req: Request):
+    try:
+        return JSONResponse(await asyncio.to_thread(
+            _fs_list, req.query_params.get("path") or DEFAULT_CWD, _flag(req, "hidden", True)))
+    except (OSError, ValueError) as e:
+        return _fs_error(e)
+
+
+@mcp.custom_route("/api/fs/stat", methods=["GET"])
+async def rest_fs_stat(req: Request):
+    try:
+        p = _fs_path(req.query_params.get("path"))
+        return JSONResponse({"path": str(p), **_entry(p)})
+    except (OSError, ValueError) as e:
+        return _fs_error(e)
+
+
+@mcp.custom_route("/api/fs/read", methods=["GET"])
+async def rest_fs_read(req: Request):
+    try:
+        return JSONResponse(await asyncio.to_thread(
+            _fs_read, req.query_params.get("path"), int(req.query_params.get("max_bytes", 1_000_000))))
+    except (OSError, ValueError) as e:
+        return _fs_error(e)
+
+
+@mcp.custom_route("/api/fs/download", methods=["GET"])
+async def rest_fs_download(req: Request):
+    from starlette.responses import FileResponse
+    try:
+        p = _fs_path(req.query_params.get("path"))
+        if not p.is_file():
+            raise FileNotFoundError(2, "Not a regular file", str(p))
+        with open(p, "rb"):  # permission check before streaming starts
+            pass
+    except (OSError, ValueError) as e:
+        return _fs_error(e)
+    audit.info("FS download %s (%d bytes)", p, p.stat().st_size)
+    return FileResponse(p, filename=p.name, media_type="application/octet-stream")
+
+
+@mcp.custom_route("/api/fs/file", methods=["PUT"])
+async def rest_fs_write(req: Request):
+    if int(req.headers.get("content-length") or 0) > MAX_UPLOAD:
+        return JSONResponse({"error": f"file larger than {MAX_UPLOAD // 1048576} MB"}, 413)
+    data = bytearray()
+    async for chunk in req.stream():
+        data += chunk
+        if len(data) > MAX_UPLOAD:
+            return JSONResponse({"error": f"file larger than {MAX_UPLOAD // 1048576} MB"}, 413)
+    try:
+        return JSONResponse(await asyncio.to_thread(
+            _fs_write, req.query_params.get("path"), bytes(data), _flag(req, "backup", True),
+            _flag(req, "overwrite", True), _flag(req, "mkdirs", False)))
+    except (OSError, ValueError) as e:
+        return _fs_error(e)
+
+
+@mcp.custom_route("/api/fs/mkdir", methods=["POST"])
+async def rest_fs_mkdir(req: Request):
+    try:
+        return JSONResponse(_fs_mkdir((await _body(req)).get("path")))
+    except (OSError, ValueError) as e:
+        return _fs_error(e)
+
+
+@mcp.custom_route("/api/fs/rename", methods=["POST"])
+async def rest_fs_rename(req: Request):
+    b = await _body(req)
+    try:
+        return JSONResponse(_fs_rename(b.get("from"), b.get("to"), bool(b.get("overwrite"))))
+    except (OSError, ValueError) as e:
+        return _fs_error(e)
+
+
+@mcp.custom_route("/api/fs", methods=["DELETE"])
+async def rest_fs_delete(req: Request):
+    try:
+        return JSONResponse(await asyncio.to_thread(
+            _fs_delete, req.query_params.get("path"), _flag(req, "recursive", False)))
+    except (OSError, ValueError) as e:
+        return _fs_error(e)
+
+
+# ----------------------------------------------------------------- terminal sessions (scope: rest)
+# Interactive shells for mcp-vm-admin-agent's web terminal, over plain HTTP: input is POSTed, output is
+# long-polled by byte offset. Only the stdlib pty module is used, so no extra dependencies on the VM.
+# Session open/close is audited; keystrokes are not (they can contain passwords).
+PTY_MAX = int(os.environ.get("AGENT_PTY_MAX", "8"))
+PTY_IDLE = int(os.environ.get("AGENT_PTY_IDLE_S", "1800"))
+PTY_BUF = 1_000_000
+PTYS: dict = {}
+
+
+class _Pty:
+    def __init__(self, cwd: str, cols: int, rows: int):
+        import pty
+        import termios  # noqa: F401  (fail early on platforms without a tty layer)
+        self.id = secrets.token_hex(6)
+        self.buf = bytearray()
+        self.base = 0  # stream offset of buf[0]
+        self.closed = False
+        self.exit_code = None
+        self.touched = time.time()
+        self.event = asyncio.Event()
+        env = {k: v for k, v in os.environ.items() if not k.startswith("AGENT_")}
+        env.update(TERM="xterm-256color", COLORTERM="truecolor", LANG=env.get("LANG", "C.UTF-8"))
+        pid, fd = pty.fork()
+        if pid == 0:  # child
+            try:
+                os.chdir(cwd)
+            except OSError:
+                os.chdir(str(Path.home()))
+            try:
+                os.execvpe("bash", ["bash", "-l"], env)
+            finally:
+                os._exit(127)
+        self.pid, self.fd = pid, fd
+        os.set_blocking(fd, False)
+        self.resize(cols, rows)
+        asyncio.get_running_loop().add_reader(fd, self._readable)
+
+    def _readable(self):
+        try:
+            data = os.read(self.fd, 65536)
+        except BlockingIOError:
+            return
+        except OSError:
+            data = b""
+        if not data:
+            self._close()
+            return
+        self.buf += data
+        if len(self.buf) > PTY_BUF:
+            drop = len(self.buf) - PTY_BUF
+            del self.buf[:drop]
+            self.base += drop
+        self.event.set()
+        self.event = asyncio.Event()
+
+    def _close(self):
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            asyncio.get_running_loop().remove_reader(self.fd)
+        except Exception:
+            pass
+        try:
+            os.close(self.fd)
+        except OSError:
+            pass
+        try:
+            _, status = os.waitpid(self.pid, os.WNOHANG)
+            self.exit_code = os.waitstatus_to_exitcode(status) if status else None
+        except ChildProcessError:
+            pass
+        self.event.set()
+        audit.info("PTY close id=%s exit=%s", self.id, self.exit_code)
+
+    def resize(self, cols: int, rows: int):
+        import struct
+        import termios
+        cols, rows = max(10, min(int(cols), 500)), max(4, min(int(rows), 200))
+        if not self.closed:
+            fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+
+    def write(self, data: bytes):
+        self.touched = time.time()
+        view = memoryview(data)
+        deadline = time.time() + 2
+        while view and not self.closed:
+            try:
+                n = os.write(self.fd, view)
+                view = view[n:]
+            except BlockingIOError:
+                if time.time() > deadline:
+                    raise OSError("terminal is not reading input")
+                time.sleep(0.01)
+
+    def kill(self):
+        if not self.closed:
+            try:
+                os.killpg(os.getpgid(self.pid), signal.SIGHUP)
+            except OSError:
+                pass
+            self._close()
+
+    async def read(self, offset: int, wait: float) -> dict:
+        self.touched = time.time()
+        end = self.base + len(self.buf)
+        if offset >= end and not self.closed and wait > 0:
+            ev = self.event
+            try:
+                await asyncio.wait_for(ev.wait(), wait)
+            except asyncio.TimeoutError:
+                pass
+            end = self.base + len(self.buf)
+        start = max(offset, self.base)
+        chunk = bytes(self.buf[start - self.base:]) if start < end else b""
+        import base64
+        return {"data": base64.b64encode(chunk).decode(), "offset": end, "skipped": start - offset if offset < self.base else 0,
+                "closed": self.closed and start + len(chunk) >= end, "exit_code": self.exit_code}
+
+
+def _pty_reap():
+    now = time.time()
+    for pid_, p in list(PTYS.items()):
+        if p.closed and now - p.touched > 60:
+            PTYS.pop(pid_, None)
+        elif not p.closed and now - p.touched > PTY_IDLE:
+            audit.info("PTY idle timeout id=%s", pid_)
+            p.kill()
+
+
+def _pty_get(req: Request):
+    p = PTYS.get(req.path_params["pid"])
+    if p is None:
+        raise KeyError(req.path_params["pid"])
+    return p
+
+
+@mcp.custom_route("/api/pty", methods=["GET", "POST"])
+async def rest_pty_open(req: Request):
+    _pty_reap()
+    if req.method == "GET":
+        return JSONResponse([{"id": p.id, "closed": p.closed, "idle_s": int(time.time() - p.touched)} for p in PTYS.values()])
+    if sum(not p.closed for p in PTYS.values()) >= PTY_MAX:
+        return JSONResponse({"error": f"too many open terminals (max {PTY_MAX})"}, 429)
+    b = await _body(req)
+    try:
+        p = _Pty(str(b.get("cwd") or DEFAULT_CWD), int(b.get("cols", 120)), int(b.get("rows", 32)))
+    except (OSError, ImportError, ValueError) as e:
+        return JSONResponse({"error": f"cannot open terminal: {e}"}, 500)
+    PTYS[p.id] = p
+    audit.info("PTY open id=%s pid=%s cwd=%s", p.id, p.pid, b.get("cwd") or DEFAULT_CWD)
+    return JSONResponse({"id": p.id, "pid": p.pid})
+
+
+@mcp.custom_route("/api/pty/{pid}/output", methods=["GET"])
+async def rest_pty_output(req: Request):
+    try:
+        p = _pty_get(req)
+    except KeyError:
+        return JSONResponse({"error": "no such terminal"}, 404)
+    wait = max(0.0, min(float(req.query_params.get("wait", 20)), 25.0))
+    return JSONResponse(await p.read(int(req.query_params.get("offset", 0)), wait))
+
+
+@mcp.custom_route("/api/pty/{pid}/input", methods=["POST"])
+async def rest_pty_input(req: Request):
+    try:
+        p = _pty_get(req)
+    except KeyError:
+        return JSONResponse({"error": "no such terminal"}, 404)
+    if p.closed:
+        return JSONResponse({"error": "terminal has exited"}, 410)
+    b = await _body(req)
+    import base64
+    try:
+        data = base64.b64decode(b["b64"]) if "b64" in b else str(b.get("data", "")).encode()
+        await asyncio.to_thread(p.write, data)
+    except (OSError, ValueError, KeyError) as e:
+        return JSONResponse({"error": str(e)}, 400)
+    return JSONResponse({"ok": True})
+
+
+@mcp.custom_route("/api/pty/{pid}/resize", methods=["POST"])
+async def rest_pty_resize(req: Request):
+    try:
+        p = _pty_get(req)
+        b = await _body(req)
+        p.resize(b.get("cols", 120), b.get("rows", 32))
+    except KeyError:
+        return JSONResponse({"error": "no such terminal"}, 404)
+    except (OSError, ValueError, TypeError) as e:
+        return JSONResponse({"error": str(e)}, 400)
+    return JSONResponse({"ok": True})
+
+
+@mcp.custom_route("/api/pty/{pid}", methods=["DELETE"])
+async def rest_pty_close(req: Request):
+    try:
+        p = _pty_get(req)
+    except KeyError:
+        return JSONResponse({"error": "no such terminal"}, 404)
+    p.kill()
+    return JSONResponse({"closed": p.id})
 
 
 # ----------------------------------------------------------------- token admin UI (session cookie)
