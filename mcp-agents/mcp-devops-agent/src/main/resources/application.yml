@@ -1,0 +1,29 @@
+# Built-in defaults. Your resources go in an external file, by default ~/.devops-agent/config.yml
+# (override with DEVOPS_AGENT_CONFIG). See config/config.example.yml.
+spring:
+  application:
+    name: mcp-devops-agent
+  main:
+    banner-mode: off
+    web-application-type: none          # stdio mode: no web server, stdout belongs to MCP
+  config:
+    import: optional:file:${DEVOPS_AGENT_CONFIG:${user.home}/.devops-agent/config.yml}
+  ai:
+    mcp:
+      server:
+        name: devops-agent
+        version: 0.1.0
+        type: SYNC
+        stdio: true
+        instructions: >
+          CI/CD agent. Start with devops_list_resources to learn the configured Jenkins servers,
+          registries and clusters, and devops_check_access if anything fails to connect.
+          Typical flow: pipeline_generate_jenkinsfile -> pipeline_create_job -> pipeline_run ->
+          dockerhub_image_exists -> release_verify. On failure read jenkins_console_log,
+          k8s_events, k8s_pod_logs, then k8s_rollback if the release is bad.
+          Secrets are never returned by any tool; refer to Jenkins credentials by id.
+
+devops:
+  access:
+    default-provider: access
+    cache-ttl: 5m

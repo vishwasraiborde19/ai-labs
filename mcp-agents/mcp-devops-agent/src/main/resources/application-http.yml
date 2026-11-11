@@ -1,0 +1,13 @@
+# Activate with --spring.profiles.active=http to serve MCP over streamable HTTP at /mcp.
+spring:
+  main:
+    web-application-type: servlet
+  ai:
+    mcp:
+      server:
+        stdio: false
+        protocol: STREAMABLE
+
+server:
+  address: ${DEVOPS_AGENT_HOST:127.0.0.1}
+  port: ${DEVOPS_AGENT_PORT:8766}

@@ -1,0 +1,42 @@
+# mcp-devops-agent configuration. Copy to ~/.devops-agent/config.yml (or point DEVOPS_AGENT_CONFIG at it).
+#
+# No secrets in this file. Every *-ref is a secret reference resolved when needed:
+#   access:<key>        access server (default when no scheme is given)
+#   vault:<path>#<fld>  HashiCorp Vault KV v2
+#   file:<key>          ~/.devops-agent/secrets.yml (chmod 600), handy until the access server exists
+#   env:<NAME>          environment variable of the agent process
+#   path:<file>         contents of a file (CA certs, mounted tokens)
+
+devops:
+  access:
+    default-provider: access     # scheme used for refs written without one
+    cache-ttl: 5m                # 0 disables caching; rotated secrets are picked up after this
+    server:
+      url: https://access.lab.local:8443
+      path-template: /api/v1/secrets/{key}
+      token-ref: env:ACCESS_SERVER_TOKEN      # must be env: or path:
+      value-field: value                     # JSON field holding the secret (dot paths allowed)
+      timeout: 10s
+      # ca-cert-ref: path:~/.devops-agent/access-ca.pem
+      # insecure-skip-tls-verify: false
+      # headers: { X-Team: platform }
+    file:
+      path: ~/.devops-agent/secrets.yml
+    # vault:
+    #   address: https://vault.lab.local:8200
+    #   token-ref: env:VAULT_TOKEN
+    #   kv-mount: secret
+
+  # Jenkins servers, Docker Hub accounts, clusters and health-check hosts live in systems.yml
+  # (default ~/.devops-agent/systems.yml), edited in the admin UI. See config/systems.example.yml.
+  # systems-file: ~/.devops-agent/systems.yml
+
+  admin:
+    auth: none          # none: no sign-in, this machine only (default) | password | saml (planned)
+    # Used when auth: password
+    allowed-networks: [127.0.0.0/8, "::1/128"]   # who may open the admin UI, e.g. add 192.168.1.0/24
+    session-ttl: 8h
+    min-password-length: 12                      # lower only for throwaway labs
+
+  http:
+    auth-token-ref: env:DEVOPS_AGENT_TOKEN   # only for --spring.profiles.active=http
