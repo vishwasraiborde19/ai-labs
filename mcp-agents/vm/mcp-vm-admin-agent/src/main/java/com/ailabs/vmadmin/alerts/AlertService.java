@@ -26,6 +26,8 @@ import com.ailabs.vmadmin.fleet.FleetService;
 import com.ailabs.vmadmin.fleet.FleetStore;
 import com.ailabs.vmadmin.metrics.MetricsService;
 import com.ailabs.vmadmin.secrets.SecretResolver;
+import com.ailabs.vmadmin.state.StateFile;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
@@ -42,16 +44,54 @@ public class AlertService {
 
     public record Alert(String host, String kind, String message, Instant since, Instant resolvedAt) {}
 
+    /** What survives a restart: open alerts (so they are not raised and posted again), history, grace timers. */
+    record Saved(List<Alert> active, List<Alert> history, Map<String, Instant> downSince) {}
+
     private final AdminProperties.Alerts cfg;
     private final FleetStore store;
     private final Map<String, Alert> active = new ConcurrentHashMap<>();
     private final Deque<Alert> history = new ArrayDeque<>();
     private final Map<String, Instant> downSince = new ConcurrentHashMap<>();
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final StateFile<Saved> stateFile;
 
     public AlertService(AdminProperties props, FleetStore store) {
         this.cfg = props.alerts();
         this.store = store;
+        this.stateFile = StateFile.beside(store.file(), "alerts.json", new TypeReference<Saved>() {});
+        restore();
+    }
+
+    private void restore() {
+        Saved s = stateFile.read();
+        if (s == null) {
+            return;
+        }
+        if (s.active() != null) {
+            s.active().stream().filter(a -> a != null && store.find(a.host()).isPresent())
+                    .forEach(a -> active.put(a.host() + "|" + a.kind(), a));
+        }
+        if (s.history() != null) {
+            synchronized (history) {
+                s.history().stream().filter(java.util.Objects::nonNull).limit(HISTORY).forEach(history::addLast);
+            }
+        }
+        if (s.downSince() != null) {
+            s.downSince().forEach((h, t) -> {
+                if (t != null && store.find(h).isPresent()) {
+                    downSince.put(h, t);
+                }
+            });
+        }
+        if (!active.isEmpty()) {
+            log.info("Restored {} open alert(s) from {}", active.size(), stateFile.file());
+        }
+    }
+
+    private void save() {
+        synchronized (history) {
+            stateFile.write(new Saved(List.copyOf(active.values()), List.copyOf(history), Map.copyOf(downSince)));
+        }
     }
 
     public AdminProperties.Alerts config() {
@@ -69,11 +109,17 @@ public class AlertService {
         FleetService.Status s = e.current();
         String host = s.host();
         if ("online".equals(s.state())) {
-            downSince.remove(host);
+            if (downSince.remove(host) != null) {
+                save();
+            }
             resolve(host, "offline");
             return;
         }
-        Instant since = downSince.computeIfAbsent(host, k -> Instant.now());
+        if (!downSince.containsKey(host)) {
+            downSince.put(host, Instant.now());
+            save();
+        }
+        Instant since = downSince.get(host);
         if (Duration.between(since, Instant.now()).compareTo(cfg.offlineAfter()) >= 0) {
             String what = "unauthorized".equals(s.state()) ? "rejects the control centre's token" : "is " + s.state();
             fire(host, "offline", host + " " + what + (s.message() != null ? ": " + s.message() : ""));
@@ -106,12 +152,16 @@ public class AlertService {
         String key = host + "|" + kind;
         Alert prev = active.get(key);
         if (prev != null) {
-            active.put(key, new Alert(host, kind, message, prev.since(), null));
+            if (!java.util.Objects.equals(prev.message(), message)) {
+                active.put(key, new Alert(host, kind, message, prev.since(), null));
+                save();
+            }
             return;
         }
         Alert a = new Alert(host, kind, message, Instant.now(), null);
         active.put(key, a);
         remember(a);
+        save();
         asAlerts(() -> Audit.log(host, "ALERT", kind + ": " + message));
         send(a, "firing");
     }
@@ -121,6 +171,7 @@ public class AlertService {
         if (a != null) {
             Alert done = new Alert(host, kind, a.message(), a.since(), Instant.now());
             remember(done);
+            save();
             asAlerts(() -> Audit.log(host, "ALERT_RESOLVED", kind));
             send(done, "resolved");
         }
@@ -147,12 +198,18 @@ public class AlertService {
 
     public List<Alert> active() {
         List<Alert> out = new ArrayList<>();
+        boolean pruned = false;
         for (Alert a : active.values()) {
             if (store.find(a.host()).isPresent()) {
                 out.add(a);
             } else {
                 active.remove(a.host() + "|" + a.kind());
+                downSince.remove(a.host());
+                pruned = true;
             }
+        }
+        if (pruned) {
+            save();
         }
         out.sort(Comparator.comparing(Alert::since).reversed());
         return out;

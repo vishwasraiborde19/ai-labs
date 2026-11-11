@@ -54,10 +54,71 @@ java -jar target/mcp-vm-admin-agent.jar          # UI: http://127.0.0.1:8767/ui
 
 | Env | Default | |
 |---|---|---|
-| `VMADMIN_HOME` | `~/.vm-admin` | `fleet.yml`, `tokens.yml` |
+| `VMADMIN_HOME` | `~/.vm-admin` | `fleet.yml`, `tokens.yml`, `schedules.yml`, `metrics/`, `state/` |
 | `VMADMIN_CONFIG` | `$VMADMIN_HOME/config.yml` | see [config/config.example.yml](config/config.example.yml) |
 | `VMADMIN_LOG_DIR` | `$VMADMIN_HOME/logs` | `admin.log`, `audit.log` |
 | `VMADMIN_HOST` / `VMADMIN_PORT` | `127.0.0.1` / `8767` | listen address |
+
+## Install as a Linux service
+
+Like the worker, the control centre can run as a systemd service, so it starts at boot and restarts if
+it crashes. Run this on the admin host as your normal user (it uses sudo for systemd):
+
+```bash
+./install.sh --build                       # mvn package, then install and start the service
+./install.sh                               # or: install an already built target/mcp-vm-admin-agent.jar
+./install.sh --import-from .run            # also bring over hosts added during 'java -jar' runs
+./deploy.sh you@admin-host                 # copy the built jar to another machine and install there
+```
+
+| Option | Default | |
+|---|---|---|
+| `--port` / `--host` | `8767` / `127.0.0.1` | listen address; keep loopback while there is no sign-in |
+| `--dir` | `~/mcp-vm-admin-agent` | the jar (previous one kept as `.jar.prev`), `uninstall.sh` |
+| `--home` | `~/.vm-admin` | all data (see below) |
+| `--jar`, `--build` | `./target/mcp-vm-admin-agent.jar` | which jar to install |
+| `--java`, `--java-opts` | `java` on `PATH` | Java 21+; installs `openjdk-21-jre-headless` (apt) or `java-21-openjdk-headless` (dnf) if missing |
+| `--no-mcp-token` | | don't generate `~/.vm-admin/mcp.token` |
+| `--import-from DIR` | | copy `fleet.yml`, `tokens.yml`, `schedules.yml`, `mcp.token`, `metrics/`, `state/` (and `config.yml`) into `--home`; skipped if `--home` already has a `fleet.yml` |
+
+The installer writes `/etc/systemd/system/mcp-vm-admin-agent.service` (runs as your user, with
+`Restart=on-failure`, `NoNewPrivileges`, `PrivateTmp` and `ProtectSystem=full`), creates `config.yml`
+and an MCP token if they don't exist, starts the service, checks `/ui` and `/mcp`, and prints the
+`claude mcp add` command.
+
+```bash
+systemctl status mcp-vm-admin-agent
+journalctl -u mcp-vm-admin-agent -f
+./install.sh --build                                  # upgrade: re-run; data is untouched
+cp ~/mcp-vm-admin-agent/mcp-vm-admin-agent.jar.prev ~/mcp-vm-admin-agent/mcp-vm-admin-agent.jar \
+  && sudo systemctl restart mcp-vm-admin-agent        # roll back
+~/mcp-vm-admin-agent/uninstall.sh [--purge]           # --purge also deletes ~/.vm-admin
+```
+
+Stop any `java -jar` instance first: both use port 8767.
+
+## What survives a restart
+
+Everything the control centre knows is kept in `--home` (`~/.vm-admin`), never in the install dir, so
+restarts, reboots and upgrades keep it:
+
+| File | Holds | Written |
+|---|---|---|
+| `fleet.yml` (+ `.bak`) | hosts: URL, token reference, group, tags, notes, read-only, CA cert | on every add, edit, rename, remove |
+| `tokens.yml` (600) | tokens pasted in the UI (`store:` references) | when a token is pasted or rotated |
+| `schedules.yml` | scheduled commands | on save / delete |
+| `metrics/<host>.jsonl` | load, memory, disk, swap samples (7 days) | every sample |
+| `state/status.json` | last known status of each host: state, agent version, features, uptime, last check | after every status round (30 s) |
+| `state/alerts.json` | open alerts, the last 300 raised/resolved, offline grace timers | when an alert opens, closes or a host goes down |
+| `state/schedule-runs.json` | last 20 results of each schedule | after each run |
+| `logs/audit.log`, `logs/admin.log` | audit trail and application log | continuously |
+
+After a restart the dashboard shows each host's last known state right away (with the time it was
+checked) until the first new check, about a second later. Alerts that are still open are not raised
+or posted to the webhook again; alerts whose condition cleared while the control centre was down are
+resolved on the first check. Schedules do not catch up on runs missed while it was stopped. The
+`state/` files are only history: if one is unreadable it is moved aside as `*.corrupt` and the control
+centre starts without it.
 
 ## Adding a VM
 
