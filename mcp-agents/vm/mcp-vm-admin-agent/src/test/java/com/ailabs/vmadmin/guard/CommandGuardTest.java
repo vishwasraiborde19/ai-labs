@@ -23,7 +23,7 @@ class CommandGuardTest {
             ":(){ :|:& };:", "chmod -R 777 /", "userdel bob", "sudo passwd root", "echo 'a:b' | chpasswd",
             "iptables -F", "ufw disable", "apt-get -y purge nginx", "dnf remove httpd", "kill -9 -1",
             "psql -c 'DROP TABLE users'", "docker system prune -af", "kubectl delete ns prod",
-            "rm -rf ~/mcp-vm-installer-agent", "terraform destroy -auto-approve"})
+            "rm -rf ~/mcp-vm-worker-agent", "rm -rf ~/mcp-vm-installer-agent", "terraform destroy -auto-approve"})
     void flagsRiskyCommands(String cmd) {
         assertTrue(guard.check(cmd).isPresent(), cmd);
     }

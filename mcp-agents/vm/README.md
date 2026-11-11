@@ -104,7 +104,7 @@ sequenceDiagram
     D->>VM: tar agent/ install.sh VERSION over SSH
     D->>VM: ssh -t bash install.sh --name web-01
     VM->>VM: python venv + mcp, uvicorn
-    VM->>S: write mcp-vm-installer-agent.service<br/>(ExecStart=run.sh, KillMode=process)
+    VM->>S: write mcp-vm-worker-agent.service<br/>(ExecStart=run.sh, KillMode=process)
     VM->>VM: ufw allow from <subnet> to :8765
     S->>VM: start run.sh → server.py :8765
     VM-->>Op: UI URL, admin password,<br/>bootstrap token + `claude mcp add ...`
@@ -194,14 +194,14 @@ Shell tab is disabled on read-only hosts. Idle sessions close after 30 min.
 
 ## Where things live
 
-| | Control centre (`~/.vm-admin`, `VMADMIN_HOME`) | Worker (`~/mcp-vm-installer-agent`) |
+| | Control centre (`~/.vm-admin`, `VMADMIN_HOME`) | Worker (`~/mcp-vm-worker-agent`) |
 |---|---|---|
 | Config | `config.yml` | systemd unit env (`AGENT_*`) |
 | Hosts / tokens | `fleet.yml`, `tokens.yml` (600) | `tokens.json` (sha256 hashes), `admin.json` |
 | Logs | `logs/admin.log`, `logs/audit.log` | `audit.log` |
 | Data | `metrics/*.jsonl`, `schedules.yml`, `state/` (last host status, open alerts, schedule runs) | `jobs/`, `plugins/` |
 | Code | `~/mcp-vm-admin-agent/mcp-vm-admin-agent.jar` | `server.py`, `ui.html`, `run.sh`, `venv/` |
-| Service | `mcp-vm-admin-agent` (systemd, `install.sh`) | `mcp-vm-installer-agent` (systemd, `install.sh`) |
+| Service | `mcp-vm-admin-agent` (systemd, `install.sh`) | `mcp-vm-worker-agent` (systemd, `install.sh`) |
 
 Both sides keep their data outside the code directory, so restarts, reboots and upgrades keep every
 host, token, schedule and alert. Details: [What survives a restart](mcp-vm-admin-agent/README.md#what-survives-a-restart).

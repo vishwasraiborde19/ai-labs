@@ -1,4 +1,4 @@
-# mcp-vm-installer-agent
+# mcp-vm-worker-agent
 
 > Architecture, request flow and lifecycle diagrams for the whole VM setup: [../README.md](../README.md)
 
@@ -19,7 +19,7 @@ Straight from git, on the VM:
 
 ```bash
 git clone https://github.com/vishwasraiborde19/ai-labs
-./ai-labs/mcp-vm-installer-agent/install.sh --name my-vm
+./ai-labs/mcp-agents/vm/mcp-vm-worker-agent/install.sh --name my-vm
 ```
 
 From a machine that can SSH to the VM:
@@ -31,8 +31,8 @@ From a machine that can SSH to the VM:
 Or on the VM itself:
 
 ```bash
-tar xzf mcp-vm-installer-agent-2.1.0.tar.gz
-./mcp-vm-installer-agent-2.1.0/install.sh --name semaphore-vm
+tar xzf mcp-vm-worker-agent-2.1.0.tar.gz
+./mcp-vm-worker-agent-2.1.0/install.sh --name semaphore-vm
 ```
 
 The installer prints three things you need: the UI URL, a generated **admin password**, and a one-time
@@ -41,6 +41,13 @@ The installer prints three things you need: the UI URL, a generated **admin pass
 Options: `--port 8765`, `--allow 192.168.1.0/24` (firewall and UI allowlist, defaults to the VM's
 subnet), `--name`, `--default-cwd`, `--dir`, `--admin-password`, `--no-bootstrap-token`, `--tls`.
 Re-running `install.sh` upgrades the code. Tokens, the admin password, plugins and jobs are kept.
+
+**Renamed from `mcp-vm-installer-agent`.** Running this `install.sh` on a VM that has the old install
+removes the old `mcp-vm-installer-agent` service, moves `~/mcp-vm-installer-agent` to
+`~/mcp-vm-worker-agent` (tokens, admin password, jobs, plugins and TLS certificate kept; the Python venv
+is rebuilt) and leaves a symlink at the old path. Existing tokens, and the control centre's entry for
+the VM, keep working. A VM upgraded only through the control centre's **Upgrade agent** button keeps
+running under the old service name and directory until `install.sh` is run on it.
 
 ## Tokens
 
@@ -54,7 +61,7 @@ Re-running `install.sh` upgrades the code. Tokens, the admin password, plugins a
 From a shell on the VM:
 
 ```bash
-cd ~/mcp-vm-installer-agent
+cd ~/mcp-vm-worker-agent
 venv/bin/python server.py token list
 venv/bin/python server.py token create ci --scopes rest --ttl-days 30
 venv/bin/python server.py token revoke <id>
@@ -127,5 +134,5 @@ ones. `features` now includes `"pty"`.
 
 ```bash
 ./uninstall.sh            # remove service, keep data
-./uninstall.sh --purge    # also delete ~/mcp-vm-installer-agent
+./uninstall.sh --purge    # also delete ~/mcp-vm-worker-agent
 ```

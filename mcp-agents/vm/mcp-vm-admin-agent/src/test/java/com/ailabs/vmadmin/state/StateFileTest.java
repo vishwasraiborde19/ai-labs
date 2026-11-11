@@ -29,7 +29,7 @@ class StateFileTest {
     void roundTripsHostStatus() throws Exception {
         Instant t = Instant.parse("2026-11-11T10:15:30Z");
         FleetService.Status s = new FleetService.Status("web-01", "online", "2.2.0", List.of("fs", "pty"), 3600L, 12L, t,
-                null, "/home/vm", "/home/vm/mcp-vm-installer-agent", "web-01");
+                null, "/home/vm", "/home/vm/mcp-vm-worker-agent", "web-01");
         file().write(Map.of("web-01", s));
 
         assertTrue(Files.exists(dir.resolve("state/status.json")));

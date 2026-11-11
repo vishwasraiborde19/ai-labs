@@ -227,7 +227,7 @@ function renderFleet() {
       : h('div', { class: 'card' }, h('h3', {}, 'Add your first VM'),
         h('p', {}, 'Each VM runs mcp-vm-worker-agent. Install it on the VM, create a token with the ',
           h('code', {}, 'rest'), ' scope (add ', h('code', {}, 'mcp'), ' to allow one-click upgrades), then click Add host and paste the URL and token.'),
-        h('pre', { class: 'out' }, './deploy.sh user@vm --name web-01\n# or on the VM:\n~/mcp-vm-installer-agent/venv/bin/python ~/mcp-vm-installer-agent/server.py token create control-centre --scopes rest,mcp')),
+        h('pre', { class: 'out' }, './deploy.sh user@vm --name web-01\n# or on the VM:\n~/mcp-vm-worker-agent/venv/bin/python ~/mcp-vm-worker-agent/server.py token create control-centre --scopes rest,mcp')),
     h('p', { class: 'hint' }, 'Fleet file: ', h('span', { class: 'mono' }, S.fleet.file || ''), '. Status is re-checked in the background every 30 seconds.'));
 }
 

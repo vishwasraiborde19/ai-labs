@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# mcp-vm-installer-agent installer / upgrader.
+# mcp-vm-worker-agent installer / upgrader.
 # Run ON the target VM as the user the agent should act as (needs sudo for systemd + ufw).
 #
 #   ./install.sh [options]
@@ -7,17 +7,19 @@
 #     --allow CIDR[,CIDR]   networks allowed to reach port + UI  (default: this VM's subnet)
 #     --name NAME           agent name shown in UI / MCP         (default: hostname)
 #     --default-cwd DIR     working dir for commands              (default: $HOME)
-#     --dir DIR             install dir                           (default: ~/mcp-vm-installer-agent)
+#     --dir DIR             install dir                           (default: ~/mcp-vm-worker-agent)
 #     --admin-password PW   set/reset the UI admin password       (default: generate on first install)
 #     --no-bootstrap-token  don't create the first token
 #     --tls                 serve HTTPS with a self-signed cert (MCP clients must trust it)
 #
 # Re-running upgrades the code and keeps tokens, admin password, plugins and jobs.
+# An install made under the old name (mcp-vm-installer-agent, ~/mcp-vm-installer-agent) is migrated:
+# the old service is removed and its data dir moved here, with a symlink left at the old path.
 set -euo pipefail
 
 SRC=$(cd "$(dirname "$0")" && pwd)
-SERVICE=mcp-vm-installer-agent
-PORT=8765 ALLOW="" NAME=$(hostname) DCWD=$HOME DIR=$HOME/mcp-vm-installer-agent
+SERVICE=mcp-vm-worker-agent
+PORT=8765 ALLOW="" NAME=$(hostname) DCWD=$HOME DIR=$HOME/mcp-vm-worker-agent
 ADMIN_PW=${AGENT_ADMIN_PASSWORD:-} BOOT=1 TLS=0
 while [ $# -gt 0 ]; do
   case $1 in
@@ -47,12 +49,31 @@ if [ -z "$ALLOW" ]; then
   ALLOW=$(python3 -c 'import ipaddress,sys; print(ipaddress.ip_interface(sys.argv[1]).network)' "$cidr")
 fi
 IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
-say "mcp-vm-installer-agent $VER -> $DIR  (port $PORT, allow $ALLOW, name $NAME, ip $IP)"
+say "mcp-vm-worker-agent $VER -> $DIR  (port $PORT, allow $ALLOW, name $NAME, ip $IP)"
 
 say "Checking python"
 python3 -c 'import sys; assert sys.version_info >= (3,10), "Python 3.10+ required"; print(sys.version.split()[0])'
 python3 -m venv --help >/dev/null 2>&1 && python3 -c 'import ensurepip' 2>/dev/null \
   || { sudo apt-get update -qq && sudo apt-get install -y -qq python3-venv; }
+
+# ------------------------------------------------ rename: mcp-vm-installer-agent -> mcp-vm-worker-agent
+LEGACY_SERVICE=mcp-vm-installer-agent LEGACY_DIR=$HOME/mcp-vm-installer-agent
+if [ -f /etc/systemd/system/$LEGACY_SERVICE.service ]; then
+  say "Replacing old service $LEGACY_SERVICE with $SERVICE"
+  sudo systemctl disable --now $LEGACY_SERVICE 2>/dev/null || true
+  sudo rm -f /etc/systemd/system/$LEGACY_SERVICE.service
+  sudo systemctl daemon-reload
+fi
+if [ -d "$LEGACY_DIR" ] && [ ! -L "$LEGACY_DIR" ]; then
+  if [ ! -e "$DIR" ]; then
+    say "Moving $LEGACY_DIR -> $DIR (tokens, admin password, jobs, plugins, TLS kept)"
+    mv "$LEGACY_DIR" "$DIR"
+    rm -rf "$DIR/venv"               # venv scripts hard-code their path; rebuilt below
+    ln -s "$DIR" "$LEGACY_DIR"       # old paths (running jobs, notes, scripts) keep working
+  else
+    echo "NOTE: both $LEGACY_DIR and $DIR exist; using $DIR. Remove the old one when no longer needed."
+  fi
+fi
 
 FIRST=1; [ -f "$DIR/tokens.json" ] && FIRST=0
 say "Copying agent files"
@@ -103,7 +124,7 @@ fi
 say "systemd service $SERVICE"
 sudo tee /etc/systemd/system/$SERVICE.service >/dev/null <<EOF
 [Unit]
-Description=mcp-vm-installer-agent $VER (MCP + REST ops agent)
+Description=mcp-vm-worker-agent $VER (MCP + REST ops agent)
 After=network-online.target
 Wants=network-online.target
 
@@ -126,7 +147,37 @@ WantedBy=multi-user.target
 EOF
 sudo systemctl daemon-reload
 sudo systemctl enable -q $SERVICE
-sudo systemctl restart $SERVICE
+sudo systemctl stop $SERVICE 2>/dev/null || true
+
+# Make sure nothing else holds the port, or the new agent cannot bind and the self-test would talk to
+# whatever is there. Agents older than 2.0 (run.sh without the SIGTERM trap) leave server.py running
+# after "systemctl stop"; those are stopped here. Anything else is reported and the install stops.
+port_pids() { { sudo ss -ltnpH "sport = :$PORT" 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d= -f2 | sort -u; } || true; }
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  pids=$(port_pids)
+  [ -z "$pids" ] && break
+  for p in $pids; do
+    cmd=$(ps -o args= -p "$p" 2>/dev/null || true)
+    unit=$(ps -o unit= -p "$p" 2>/dev/null | tr -d ' ' || true)
+    case "$unit" in
+      ""|"$SERVICE.service"|*.scope|-) ;;
+      *) echo "ERROR: port $PORT is held by pid $p ($cmd), started by systemd unit $unit."
+         echo "       If that is an older agent: sudo systemctl disable --now $unit   then re-run install.sh,"
+         echo "       or install this one on another port with --port."
+         exit 1 ;;
+    esac
+    case "$cmd" in
+      *server.py*) echo "Stopping stale agent on port $PORT (pid $p: $cmd)"; sudo kill "$p" 2>/dev/null || true ;;
+      *) echo "ERROR: port $PORT is used by pid $p ($cmd). Stop it or use --port."; exit 1 ;;
+    esac
+  done
+  sleep 0.5
+done
+for p in $(port_pids); do echo "Force-stopping pid $p"; sudo kill -9 "$p" 2>/dev/null || true; done
+sleep 0.5
+[ -z "$(port_pids)" ] || { echo "ERROR: port $PORT is still in use"; exit 1; }
+
+sudo systemctl start $SERVICE
 
 if command -v ufw >/dev/null && sudo ufw status | grep -q "Status: active"; then
   say "ufw: allow $ALLOW -> tcp/$PORT"
@@ -137,7 +188,16 @@ fi
 say "Self-test"
 URL=$SCHEME://127.0.0.1:$PORT
 for i in $(seq 1 20); do curl -fsS $CURLK "$URL/health" >/dev/null 2>&1 && break; sleep 0.5; done
-curl -fsS $CURLK "$URL/health"; echo
+HEALTH=$(curl -fsS $CURLK "$URL/health" 2>/dev/null || true)
+echo "$HEALTH"
+RUNNING=$(printf '%s' "$HEALTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' 2>/dev/null || true)
+if [ "$RUNNING" != "$VER" ]; then
+  echo
+  echo "ERROR: expected version $VER on port $PORT, got '${RUNNING:-no answer}'. The new agent is not the one running."
+  sudo ss -ltnpH "sport = :$PORT" 2>/dev/null || true
+  sudo journalctl -u $SERVICE -n 20 --no-pager || true
+  exit 1
+fi
 code=$(curl -s $CURLK -o /dev/null -w '%{http_code}' "$URL/ui"); echo "UI: HTTP $code"
 code=$(curl -s $CURLK -o /dev/null -w '%{http_code}' "$URL/api/info"); echo "REST without token: HTTP $code (expect 401)"
 if [ -n "$BOOT_TOKEN" ]; then
@@ -148,7 +208,7 @@ MCP_NAME=$(echo "$NAME" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9_\n-' '-')
 cat <<EOF
 
 =====================================================================
- mcp-vm-installer-agent $VER is running on $NAME
+ mcp-vm-worker-agent $VER is running on $NAME
    Service:   $SERVICE   (journalctl -u $SERVICE -f)
    Audit log: $DIR/audit.log
    Token UI:  $SCHEME://$IP:$PORT/ui   (from $ALLOW)

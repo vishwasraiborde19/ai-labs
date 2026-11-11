@@ -124,7 +124,7 @@ centre starts without it.
 
 1. Install or upgrade the worker on the VM (`../mcp-vm-worker-agent/deploy.sh user@vm --name web-01`).
 2. Create a token for the control centre. Use scope `rest`, or `rest,mcp` to allow one-click upgrades:
-   `~/mcp-vm-installer-agent/venv/bin/python ~/mcp-vm-installer-agent/server.py token create control-centre --scopes rest,mcp`
+   `~/mcp-vm-worker-agent/venv/bin/python ~/mcp-vm-worker-agent/server.py token create control-centre --scopes rest,mcp`
 3. In the UI: **Add host**, enter the name and `http://VM:8765`, paste the token, **Test connection**, then **Add host**.
 
 Workers older than 2.1.0 have no file API. Everything else works, and the Files tab offers the upgrade.

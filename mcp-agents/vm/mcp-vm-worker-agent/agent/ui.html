@@ -70,7 +70,7 @@ details summary{cursor:pointer;font-weight:650;font-size:15px}
 </head>
 <body>
 <header>
-  <h1>mcp-vm-installer-agent</h1>
+  <h1>mcp-vm-worker-agent</h1>
   <span class="meta" id="meta"></span>
   <span class="spacer"></span>
   <button class="small hidden" id="logoutBtn">Sign out</button>
@@ -80,7 +80,7 @@ details summary{cursor:pointer;font-weight:650;font-size:15px}
   <form class="card" id="loginForm">
     <h2>Sign in</h2>
     <div id="noAdmin" class="hint hidden">No admin password is set yet. On the VM, run:<br>
-      <code class="mono">cd ~/mcp-vm-installer-agent &amp;&amp; venv/bin/python server.py admin-password</code></div>
+      <code class="mono">cd ~/mcp-vm-worker-agent &amp;&amp; venv/bin/python server.py admin-password</code></div>
     <div>
       <label for="pw">Admin password</label>
       <input type="password" id="pw" autocomplete="current-password" required>
