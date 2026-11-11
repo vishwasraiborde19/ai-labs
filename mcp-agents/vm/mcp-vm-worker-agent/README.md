@@ -1,5 +1,7 @@
 # mcp-vm-installer-agent
 
+> Architecture, request flow and lifecycle diagrams for the whole VM setup: [../README.md](../README.md)
+
 A small agent you install on a VM so Claude Code (over **MCP**) and scripts (over **REST**) can run
 commands, start long jobs, and read and write files there. A built-in web UI generates and revokes
 the tokens that grant that access.
@@ -72,7 +74,7 @@ curl -H "$H" -X DELETE http://VM:8765/api/jobs/<job_id>
 
 ## File API (2.1.0+)
 
-Used by the control centre's file browser ([mcp-vm-admin-agent](../vm/mcp-vm-admin-agent/)). Scope `rest`.
+Used by the control centre's file browser ([mcp-vm-admin-agent](../mcp-vm-admin-agent/)). Scope `rest`.
 Paths are absolute, or relative to `--default-cwd`. Every call is in `audit.log`.
 
 | Call | Does |

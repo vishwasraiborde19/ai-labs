@@ -1,5 +1,7 @@
 # mcp-vm-admin-agent
 
+> Architecture, request flow and lifecycle diagrams for the whole VM setup: [../README.md](../README.md)
+
 Control centre for VMs running [mcp-vm-worker-agent](../mcp-vm-worker-agent/). One web UI (and an MCP
 endpoint for Claude Code) to see the whole fleet, browse and edit files, run commands and jobs, and
 upgrade the agents.
