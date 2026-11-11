@@ -1,0 +1,37 @@
+# Service account for the agent, limited to one namespace. Apply once per namespace it may touch:
+#   kubectl -n dev apply -f config/k8s-rbac.yaml
+#   kubectl -n dev create token devops-agent --duration=8760h   # store the output on the access server
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: devops-agent
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: devops-agent
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "patch"]       # drop patch for a read-only cluster
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: devops-agent
+subjects:
+  - kind: ServiceAccount
+    name: devops-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: devops-agent

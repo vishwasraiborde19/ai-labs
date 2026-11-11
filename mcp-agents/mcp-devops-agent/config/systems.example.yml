@@ -1,0 +1,36 @@
+# systems.yml: the systems the agent can reach. Normally edited in the admin UI
+# (java -jar mcp-devops-agent.jar --spring.profiles.active=admin, then http://127.0.0.1:8766/admin).
+# Running agents reload this file within a second of a change. No secrets here: only references.
+jenkins:
+  - name: main
+    url: http://jenkins.lab.local:8080
+    username: devops-agent
+    token-ref: access:jenkins/main/api-token
+    read-only: false
+    # Secrets jenkins_sync_credential may copy into this Jenkins (trailing * = prefix). Empty = disabled.
+    credential-sync-allow:
+      - access:dockerhub/ci/*
+      - access:kubernetes/dev/kubeconfig
+
+dockerhub:
+  - name: default
+    namespace: myuser                         # used when a repository is given without one
+    username: myuser
+    password-ref: access:dockerhub/ci/token   # Docker Hub personal access token
+
+kubernetes:
+  - name: dev
+    api-server: https://192.168.1.50:6443
+    token-ref: access:kubernetes/dev/devops-agent-token   # service account token, see config/k8s-rbac.yaml
+    ca-cert-ref: access:kubernetes/dev/ca                 # PEM or base64 PEM (as in kubeconfig)
+    allowed-namespaces: [dev, staging]                    # empty = all namespaces
+    read-only: false
+  - name: prod
+    api-server: https://10.0.0.10:6443
+    token-ref: access:kubernetes/prod/readonly-token
+    ca-cert-ref: access:kubernetes/prod/ca
+    allowed-namespaces: [prod]
+    read-only: true                                       # inspect only; deploys go through Jenkins
+
+health:
+  allowed-hosts: []          # e.g. ["*.lab.local", "192.168.1.60"]; empty = any host

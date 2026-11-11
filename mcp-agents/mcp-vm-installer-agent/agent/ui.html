@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Tokens</title>
+<style>
+:root{
+  --bg:#f5f6f8;--card:#ffffff;--fg:#1a1e23;--muted:#5c6773;--line:#dfe3e8;--code:#eef1f4;
+  --accent:#2457d6;--accent-fg:#ffffff;--danger:#c0392b;--ok:#1d7a3e;--warn:#9a5b00;
+  --chip:#e8eefc;--chip-fg:#1e46a8;--radius:10px;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1115;--card:#161a20;--fg:#e5e8ec;--muted:#98a2ae;--line:#2a3039;--code:#0b0d11;
+    --accent:#6b93f5;--accent-fg:#0b0d11;--danger:#f07167;--ok:#52c27f;--warn:#e0a345;
+    --chip:#1d2840;--chip-fg:#a9c0ff;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1115;--card:#161a20;--fg:#e5e8ec;--muted:#98a2ae;--line:#2a3039;--code:#0b0d11;
+  --accent:#6b93f5;--accent-fg:#0b0d11;--danger:#f07167;--ok:#52c27f;--warn:#e0a345;
+  --chip:#1d2840;--chip-fg:#a9c0ff;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--card)}
+header h1{font-size:16px;margin:0;font-weight:650}
+header .meta{color:var(--muted);font-size:13px}
+header .spacer{flex:1}
+main{max-width:1040px;margin:0 auto;padding:20px 16px 48px;display:grid;gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+.card h2{font-size:15px;margin:0 0 12px;font-weight:650}
+.hint{color:var(--muted);font-size:13px;margin:4px 0 0}
+label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}
+input[type=text],input[type=password],select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);font:inherit}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.row{display:grid;grid-template-columns:2fr 1.2fr 1fr auto;gap:12px;align-items:end}
+@media (max-width:720px){.row{grid-template-columns:1fr}}
+.checks{display:flex;gap:14px;padding:8px 0}
+.checks label{display:flex;gap:6px;align-items:center;color:var(--fg);margin:0;font-size:14px}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);padding:8px 14px;border-radius:8px;cursor:pointer;white-space:nowrap}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:600}
+button.danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 45%,var(--line))}
+button.small{padding:4px 10px;font-size:13px}
+button:disabled{opacity:.5;cursor:default}
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600}
+td.mono,.mono{font-family:var(--mono);font-size:13px}
+.chip{display:inline-block;padding:1px 8px;border-radius:999px;background:var(--chip);color:var(--chip-fg);font-size:12px;margin-right:4px}
+.st{font-weight:600;font-size:13px}
+.st.active{color:var(--ok)}.st.revoked{color:var(--danger)}.st.expired{color:var(--warn)}
+.muted{color:var(--muted)}
+.reveal{border:1px solid var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--card))}
+.secret{display:flex;gap:8px;align-items:center}
+.secret code{flex:1;min-width:0;overflow-wrap:anywhere;background:var(--code);padding:10px;border-radius:8px;font-family:var(--mono);font-size:13px}
+pre{background:var(--code);padding:10px;border-radius:8px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+details summary{cursor:pointer;font-weight:650;font-size:15px}
+.err{color:var(--danger);font-size:13px;min-height:1.2em;margin-top:6px}
+.login{max-width:380px;margin:12vh auto 0}
+.login .card{display:grid;gap:12px}
+.hidden{display:none!important}
+.actions{display:flex;gap:6px}
+.pw-grid{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end;margin-top:12px}
+@media (max-width:720px){.pw-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>mcp-vm-installer-agent</h1>
+  <span class="meta" id="meta"></span>
+  <span class="spacer"></span>
+  <button class="small hidden" id="logoutBtn">Sign out</button>
+</header>
+
+<div class="login hidden" id="loginView">
+  <form class="card" id="loginForm">
+    <h2>Sign in</h2>
+    <div id="noAdmin" class="hint hidden">No admin password is set yet. On the VM, run:<br>
+      <code class="mono">cd ~/mcp-vm-installer-agent &amp;&amp; venv/bin/python server.py admin-password</code></div>
+    <div>
+      <label for="pw">Admin password</label>
+      <input type="password" id="pw" autocomplete="current-password" required>
+    </div>
+    <button class="primary" type="submit">Sign in</button>
+    <div class="err" id="loginErr"></div>
+  </form>
+</div>
+
+<main class="hidden" id="appView">
+  <section class="card">
+    <h2>New token</h2>
+    <form id="createForm" class="row">
+      <div>
+        <label for="tname">Name</label>
+        <input type="text" id="tname" maxlength="60" placeholder="e.g. semaphore, laptop-claude" required>
+      </div>
+      <div>
+        <label>Scopes</label>
+        <div class="checks">
+          <label><input type="checkbox" id="sRest" checked> REST</label>
+          <label><input type="checkbox" id="sMcp"> MCP</label>
+        </div>
+      </div>
+      <div>
+        <label for="ttl">Expires</label>
+        <select id="ttl">
+          <option value="">Never</option>
+          <option value="1">in 1 day</option>
+          <option value="7">in 7 days</option>
+          <option value="30" selected>in 30 days</option>
+          <option value="90">in 90 days</option>
+          <option value="365">in 1 year</option>
+        </select>
+      </div>
+      <button class="primary" type="submit">Generate</button>
+    </form>
+    <div class="err" id="createErr"></div>
+    <p class="hint">REST tokens work on <span class="mono">/api/*</span>. MCP tokens work on <span class="mono">/mcp</span>, which is how Claude Code connects. Both grant a shell on this VM.</p>
+  </section>
+
+  <section class="card reveal hidden" id="revealCard">
+    <h2>Copy your new token now</h2>
+    <p class="hint">It is shown only once. The agent keeps only a hash.</p>
+    <div class="secret" style="margin-top:10px">
+      <code id="newToken"></code>
+      <button class="small" id="copyBtn" type="button">Copy</button>
+    </div>
+    <div id="examples"></div>
+    <div style="margin-top:12px"><button class="small" id="dismissBtn" type="button">I've saved it</button></div>
+  </section>
+
+  <section class="card">
+    <h2>Tokens</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Name</th><th>ID</th><th>Scopes</th><th>Status</th><th>Created</th><th>Expires</th><th>Last used</th><th></th></tr></thead>
+        <tbody id="tokBody"></tbody>
+      </table>
+    </div>
+    <p class="hint" id="tokEmpty" hidden>No tokens yet.</p>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>Recent activity</summary>
+      <pre id="audit" style="max-height:360px;overflow:auto"></pre>
+    </details>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>Admin password</summary>
+      <form id="pwForm" class="pw-grid">
+        <div><label for="pwCur">Current</label><input type="password" id="pwCur" autocomplete="current-password" required></div>
+        <div><label for="pwNew">New (min 10 chars)</label><input type="password" id="pwNew" autocomplete="new-password" minlength="10" required></div>
+        <div><label for="pwNew2">Repeat new</label><input type="password" id="pwNew2" autocomplete="new-password" minlength="10" required></div>
+        <button type="submit">Change</button>
+      </form>
+      <div class="err" id="pwErr"></div>
+      <p class="hint">Changing it signs out every other browser session. API tokens are not affected.</p>
+    </details>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let agentName = "agent";
+
+async function api(method, path, body) {
+  const opt = {method, credentials: "same-origin", headers: {"X-MVA-UI": "1"}};
+  if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
+  const r = await fetch(path, opt);
+  let data = {};
+  try { data = await r.json(); } catch (_) {}
+  if (r.status === 401 && path !== "/ui/api/login" && path !== "/ui/api/password") { showLogin(); throw new Error("login required"); }
+  if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+  return data;
+}
+
+const fmt = ts => ts ? new Date(ts * 1000).toLocaleString([], {dateStyle: "medium", timeStyle: "short"}) : "—";
+function ago(ts) {
+  if (!ts) return "never";
+  const s = Math.max(0, Date.now() / 1000 - ts);
+  if (s < 90) return "just now";
+  if (s < 3600) return Math.round(s / 60) + " min ago";
+  if (s < 86400) return Math.round(s / 3600) + " h ago";
+  return Math.round(s / 86400) + " d ago";
+}
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") e.className = v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
+  }
+  for (const k of kids) e.append(k instanceof Node ? k : document.createTextNode(k ?? ""));
+  return e;
+}
+
+function showLogin(noAdmin) {
+  $("appView").classList.add("hidden"); $("logoutBtn").classList.add("hidden");
+  $("loginView").classList.remove("hidden"); $("noAdmin").classList.toggle("hidden", !noAdmin);
+  $("pw").focus();
+}
+function showApp() {
+  $("loginView").classList.add("hidden");
+  $("appView").classList.remove("hidden"); $("logoutBtn").classList.remove("hidden");
+  refresh();
+}
+
+async function refresh() {
+  const [toks, ov] = await Promise.all([api("GET", "/ui/api/tokens"), api("GET", "/ui/api/overview")]);
+  const body = $("tokBody"); body.replaceChildren();
+  $("tokEmpty").hidden = toks.length > 0;
+  for (const t of toks) {
+    const acts = el("div", {class: "actions"});
+    if (t.status === "active") acts.append(el("button", {class: "small danger", onclick: () => revoke(t)}, "Revoke"));
+    else acts.append(el("button", {class: "small", onclick: () => del(t)}, "Delete"));
+    body.append(el("tr", {},
+      el("td", {}, t.name),
+      el("td", {class: "mono", title: t.hint}, t.id),
+      el("td", {}, ...t.scopes.map(s => el("span", {class: "chip"}, s.toUpperCase()))),
+      el("td", {}, el("span", {class: "st " + t.status}, t.status)),
+      el("td", {class: "muted"}, fmt(t.created)),
+      el("td", {class: "muted"}, t.expires ? fmt(t.expires) : "never"),
+      el("td", {class: "muted", title: fmt(t.last_used)}, ago(t.last_used)),
+      el("td", {}, acts)));
+  }
+  $("audit").textContent = ov.audit.slice().reverse().join("\n") || "(empty)";
+}
+
+async function revoke(t) {
+  if (!confirm(`Revoke "${t.name}" (${t.id})? Anything using it stops working immediately.`)) return;
+  try { await api("POST", `/ui/api/tokens/${encodeURIComponent(t.id)}/revoke`); } catch (e) { alert(e.message); }
+  refresh();
+}
+async function del(t) {
+  if (!confirm(`Delete "${t.name}" (${t.id}) from the list?`)) return;
+  try { await api("DELETE", `/ui/api/tokens/${encodeURIComponent(t.id)}`); } catch (e) { alert(e.message); }
+  refresh();
+}
+
+function examples(tok, scopes) {
+  const o = location.origin, box = $("examples"); box.replaceChildren();
+  const add = (title, text) => box.append(el("p", {class: "hint", style: "margin-top:12px"}, title), el("pre", {}, text));
+  if (scopes.includes("rest")) {
+    add("REST: test it", `curl -H "Authorization: Bearer ${tok}" ${o}/api/info`);
+    add("REST: run a command", `curl -X POST ${o}/api/run \\\n  -H "Authorization: Bearer ${tok}" -H "Content-Type: application/json" \\\n  -d '{"command":"hostname; uptime"}'`);
+  }
+  if (scopes.includes("mcp")) {
+    const n = agentName.toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+    add("MCP: add to Claude Code", `claude mcp add --transport http --scope user ${n} ${o}/mcp \\\n  --header "Authorization: Bearer ${tok}"`);
+  }
+}
+
+$("createForm").addEventListener("submit", async e => {
+  e.preventDefault(); $("createErr").textContent = "";
+  const scopes = [];
+  if ($("sRest").checked) scopes.push("rest");
+  if ($("sMcp").checked) scopes.push("mcp");
+  if (!scopes.length) { $("createErr").textContent = "Pick at least one scope."; return; }
+  try {
+    const ttl = $("ttl").value;
+    const r = await api("POST", "/ui/api/tokens", {name: $("tname").value, scopes, ttl_days: ttl ? Number(ttl) : null});
+    $("newToken").textContent = r.token; examples(r.token, r.record.scopes);
+    $("revealCard").classList.remove("hidden"); $("revealCard").scrollIntoView({behavior: "smooth", block: "nearest"});
+    $("tname").value = ""; refresh();
+  } catch (err) { $("createErr").textContent = err.message; }
+});
+$("copyBtn").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("newToken").textContent); $("copyBtn").textContent = "Copied"; }
+  catch (_) { const r = document.createRange(); r.selectNodeContents($("newToken")); getSelection().removeAllRanges(); getSelection().addRange(r); $("copyBtn").textContent = "Press Ctrl+C"; }
+  setTimeout(() => $("copyBtn").textContent = "Copy", 2000);
+});
+$("dismissBtn").addEventListener("click", () => {
+  $("newToken").textContent = ""; $("examples").replaceChildren(); $("revealCard").classList.add("hidden");
+});
+$("loginForm").addEventListener("submit", async e => {
+  e.preventDefault(); $("loginErr").textContent = "";
+  try { await api("POST", "/ui/api/login", {password: $("pw").value}); $("pw").value = ""; showApp(); }
+  catch (err) { $("loginErr").textContent = err.message; }
+});
+$("logoutBtn").addEventListener("click", async () => { await api("POST", "/ui/api/logout").catch(() => {}); showLogin(); });
+$("pwForm").addEventListener("submit", async e => {
+  e.preventDefault(); $("pwErr").textContent = "";
+  if ($("pwNew").value !== $("pwNew2").value) { $("pwErr").textContent = "New passwords do not match."; return; }
+  try {
+    await api("POST", "/ui/api/password", {current: $("pwCur").value, new: $("pwNew").value});
+    $("pwForm").reset(); $("pwErr").textContent = "Password changed.";
+  } catch (err) { $("pwErr").textContent = err.message; }
+});
+
+(async () => {
+  try {
+    const s = await (await fetch("/ui/api/session", {credentials: "same-origin"})).json();
+    agentName = s.name; $("meta").textContent = `${s.name} · v${s.version}`;
+    s.authenticated ? showApp() : showLogin(!s.admin_configured);
+  } catch (_) { showLogin(); }
+  setInterval(() => { if (!$("appView").classList.contains("hidden")) refresh().catch(() => {}); }, 30000);
+})();
+</script>
+</body>
+</html>
