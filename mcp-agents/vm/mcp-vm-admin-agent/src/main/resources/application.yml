@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: mcp-vm-admin-agent
+  main:
+    banner-mode: "off"
+  threads:
+    virtual:
+      enabled: true   # terminal output long-polls hold a request open for up to 20s
+  config:
+    import: optional:file:${VMADMIN_CONFIG:${user.home}/.vm-admin/config.yml}
+  ai:
+    mcp:
+      server:
+        name: vm-admin
+        version: 0.1.0
+        protocol: STREAMABLE
+        stdio: false
+        instructions: >
+          Control centre for a fleet of VMs running mcp-vm-worker-agent. Use fleet_hosts and
+          fleet_refresh first. Commands run as the agent's service user on the VM. Dangerous commands
+          and anything on read-only hosts are refused unless the tool says otherwise.
+  mvc:
+    formcontent:
+      filter:
+        enabled: false   # uploads are raw bytes, never forms
+    async:
+      request-timeout: 30m   # long commands and large downloads
+
+server:
+  address: ${VMADMIN_HOST:127.0.0.1}
+  port: ${VMADMIN_PORT:8767}
+  servlet:
+    session:
+      tracking-modes: []
+  tomcat:
+    max-swallow-size: -1
+
+vmadmin:
+  ui:
+    auth: none
