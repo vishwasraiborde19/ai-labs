@@ -16,7 +16,7 @@ server, ready for Ansible playbooks and Terraform/OpenTofu projects.
 
 ```bash
 git clone https://github.com/vishwasraiborde19/ai-labs
-./ai-labs/semaphore-installer/install-semaphore.sh
+./ai-labs/mcp-agents/semaphore-installer/install-semaphore.sh
 ```
 
 Run it as a user with sudo. It takes about 2 minutes and finishes with the URL and a generated

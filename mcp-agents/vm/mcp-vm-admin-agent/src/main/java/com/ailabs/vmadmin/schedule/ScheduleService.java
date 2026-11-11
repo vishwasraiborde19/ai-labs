@@ -30,6 +30,8 @@ import org.springframework.stereotype.Service;
 
 import com.ailabs.vmadmin.Audit;
 import com.ailabs.vmadmin.config.AdminProperties;
+import com.ailabs.vmadmin.state.StateFile;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.ailabs.vmadmin.fleet.FleetService;
 import com.ailabs.vmadmin.fleet.Host;
 import com.ailabs.vmadmin.guard.CommandGuard;
@@ -84,6 +86,8 @@ public class ScheduleService {
     private final Map<String, Deque<Run>> runs = new ConcurrentHashMap<>();
     private final Map<String, Instant> lastCheck = new ConcurrentHashMap<>();
     private final Map<String, Boolean> running = new ConcurrentHashMap<>();
+    /** Last {@value #KEEP_RUNS} runs per schedule, kept across restarts. */
+    private final StateFile<Map<String, List<Run>>> runsFile;
     private final ScheduledExecutorService ticker = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "schedules");
         t.setDaemon(true);
@@ -100,10 +104,12 @@ public class ScheduleService {
         this.ops = ops;
         this.fleet = ops.fleet();
         this.guard = guard;
+        this.runsFile = StateFile.beside(file, "schedule-runs.json", new TypeReference<Map<String, List<Run>>>() {});
     }
 
     @PostConstruct
     void start() {
+        restoreRuns();
         Instant now = Instant.now();
         list().forEach(s -> lastCheck.put(s.id(), now));
         ticker.scheduleWithFixedDelay(this::tick, 15, 15, TimeUnit.SECONDS);
@@ -172,6 +178,7 @@ public class ScheduleService {
         all.removeIf(x -> x.id().equals(id));
         write(all);
         runs.remove(id);
+        saveRuns();
         lastCheck.remove(id);
         Audit.log(target(s), "SCHEDULE_DELETE", s.name());
     }
@@ -306,7 +313,34 @@ public class ScheduleService {
                 q.removeLast();
             }
         }
+        saveRuns();
         return run;
+    }
+
+    private void restoreRuns() {
+        Map<String, List<Run>> saved = runsFile.read();
+        if (saved == null) {
+            return;
+        }
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        list().forEach(s -> ids.add(s.id()));
+        saved.forEach((id, list) -> {
+            if (ids.contains(id) && list != null) {
+                Deque<Run> q = new ArrayDeque<>();
+                list.stream().filter(java.util.Objects::nonNull).limit(KEEP_RUNS).forEach(q::addLast);
+                runs.put(id, q);
+            }
+        });
+    }
+
+    private void saveRuns() {
+        Map<String, List<Run>> out = new LinkedHashMap<>();
+        runs.forEach((id, q) -> {
+            synchronized (q) {
+                out.put(id, List.copyOf(q));
+            }
+        });
+        runsFile.write(out);
     }
 
     public List<Run> runs(String id) {

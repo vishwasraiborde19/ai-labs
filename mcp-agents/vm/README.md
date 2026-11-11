@@ -104,7 +104,7 @@ sequenceDiagram
     D->>VM: tar agent/ install.sh VERSION over SSH
     D->>VM: ssh -t bash install.sh --name web-01
     VM->>VM: python venv + mcp, uvicorn
-    VM->>S: write mcp-vm-installer-agent.service<br/>(ExecStart=run.sh, KillMode=process)
+    VM->>S: write mcp-vm-worker-agent.service<br/>(ExecStart=run.sh, KillMode=process)
     VM->>VM: ufw allow from <subnet> to :8765
     S->>VM: start run.sh → server.py :8765
     VM-->>Op: UI URL, admin password,<br/>bootstrap token + `claude mcp add ...`
@@ -194,13 +194,17 @@ Shell tab is disabled on read-only hosts. Idle sessions close after 30 min.
 
 ## Where things live
 
-| | Control centre (`~/.vm-admin`, `VMADMIN_HOME`) | Worker (`~/mcp-vm-installer-agent`) |
+| | Control centre (`~/.vm-admin`, `VMADMIN_HOME`) | Worker (`~/mcp-vm-worker-agent`) |
 |---|---|---|
 | Config | `config.yml` | systemd unit env (`AGENT_*`) |
 | Hosts / tokens | `fleet.yml`, `tokens.yml` (600) | `tokens.json` (sha256 hashes), `admin.json` |
 | Logs | `logs/admin.log`, `logs/audit.log` | `audit.log` |
-| Data | `metrics/*.jsonl`, `schedules.yml` | `jobs/`, `plugins/` |
-| Code | `target/mcp-vm-admin-agent.jar` | `server.py`, `ui.html`, `run.sh`, `venv/` |
+| Data | `metrics/*.jsonl`, `schedules.yml`, `state/` (last host status, open alerts, schedule runs) | `jobs/`, `plugins/` |
+| Code | `~/mcp-vm-admin-agent/mcp-vm-admin-agent.jar` | `server.py`, `ui.html`, `run.sh`, `venv/` |
+| Service | `mcp-vm-admin-agent` (systemd, `install.sh`) | `mcp-vm-worker-agent` (systemd, `install.sh`) |
+
+Both sides keep their data outside the code directory, so restarts, reboots and upgrades keep every
+host, token, schedule and alert. Details: [What survives a restart](mcp-vm-admin-agent/README.md#what-survives-a-restart).
 
 ## Ports and network
 
@@ -221,9 +225,9 @@ the worker for HTTPS, and `ca-cert-ref` in `fleet.yml` so the control centre tru
 # 1. worker on each VM
 ./mcp-vm-worker-agent/deploy.sh user@192.168.1.50 --name web-01
 
-# 2. control centre on your machine
-cd mcp-vm-admin-agent && mvn package && java -jar target/mcp-vm-admin-agent.jar
-# open http://127.0.0.1:8767/ui → Add host
+# 2. control centre on your machine, as a systemd service
+./mcp-vm-admin-agent/install.sh --build      # add --import-from mcp-vm-admin-agent/.run to keep earlier hosts
+# open http://127.0.0.1:8767/ui → Add host   (or for a quick try: java -jar target/mcp-vm-admin-agent.jar)
 
 # 3. (optional) Claude Code → whole fleet
 claude mcp add --transport http vm-admin http://127.0.0.1:8767/mcp \

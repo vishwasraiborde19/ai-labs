@@ -6,8 +6,8 @@
 set -euo pipefail
 TARGET=${1:?usage: deploy.sh user@host [install.sh options]}; shift
 SRC=$(cd "$(dirname "$0")" && pwd)
-REMOTE=.cache/mcp-vm-installer-agent-src
-echo "== Uploading mcp-vm-installer-agent $(cat "$SRC/VERSION") to $TARGET"
+REMOTE=.cache/mcp-vm-worker-agent-src
+echo "== Uploading mcp-vm-worker-agent $(cat "$SRC/VERSION") to $TARGET"
 tar -C "$SRC" -czf - agent install.sh uninstall.sh VERSION README.md \
   | ssh "$TARGET" "rm -rf ~/$REMOTE && mkdir -p ~/$REMOTE && tar -xzf - -C ~/$REMOTE"
 echo "== Running install.sh on $TARGET"

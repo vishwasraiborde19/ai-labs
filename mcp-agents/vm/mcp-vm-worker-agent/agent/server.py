@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-mcp-vm-installer-agent: remote-ops agent for a VM, over MCP and REST.
+mcp-vm-worker-agent: remote-ops agent for a VM, over MCP and REST.
 
   MCP (streamable HTTP):  http://<host>:<port>/mcp      token scope "mcp"
   REST API:               http://<host>:<port>/api/*    token scope "rest"
@@ -598,7 +598,7 @@ async def update_server(code: str, ui_html: str = "") -> dict:
 @mcp.tool()
 async def server_info() -> dict:
     """Agent name, version, uptime, default cwd, plugins, token count, python version."""
-    return {"agent": "mcp-vm-installer-agent", "name": AGENT_NAME, "version": VERSION,
+    return {"agent": "mcp-vm-worker-agent", "name": AGENT_NAME, "version": VERSION,
             "uptime_s": int(time.time() - STARTED), "default_cwd": DEFAULT_CWD, "host": socket.gethostname(),
             "plugins": sorted(LOADED), "active_tokens": sum(t["status"] == "active" for t in TOKENS.list()),
             "python": sys.version.split()[0], "base": str(BASE), "tls": bool(TLS_CERT), "features": FEATURES}
@@ -615,7 +615,7 @@ async def _body(req: Request) -> dict:
 
 @mcp.custom_route("/health", methods=["GET"])
 async def rest_health(req: Request):
-    return JSONResponse({"ok": True, "agent": "mcp-vm-installer-agent", "version": VERSION, "features": FEATURES})
+    return JSONResponse({"ok": True, "agent": "mcp-vm-worker-agent", "version": VERSION, "features": FEATURES})
 
 
 @mcp.custom_route("/api/run", methods=["POST"])
@@ -1299,7 +1299,7 @@ def _fmt_ts(ts) -> str:
 
 def cli(argv: list) -> int:
     CURRENT_TOKEN.set("cli")
-    ap = argparse.ArgumentParser(prog="server.py", description="mcp-vm-installer-agent")
+    ap = argparse.ArgumentParser(prog="server.py", description="mcp-vm-worker-agent")
     sub = ap.add_subparsers(dest="cmd", required=True)
     tok = sub.add_parser("token", help="manage API tokens").add_subparsers(dest="tcmd", required=True)
     tok.add_parser("list")

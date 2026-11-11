@@ -27,6 +27,8 @@ import com.ailabs.vmadmin.agent.AgentClient;
 import com.ailabs.vmadmin.agent.AgentException;
 import com.ailabs.vmadmin.config.AdminProperties;
 import com.ailabs.vmadmin.secrets.SecretResolver;
+import com.ailabs.vmadmin.state.StateFile;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import jakarta.annotation.PostConstruct;
@@ -83,6 +85,8 @@ public class FleetService {
     private final Map<String, CachedClient> clients = new ConcurrentHashMap<>();
     private final Map<String, CachedToken> tokens = new ConcurrentHashMap<>();
     private final Map<String, Status> status = new ConcurrentHashMap<>();
+    /** Last known status per host, so the dashboard is populated straight after a restart. */
+    private final StateFile<Map<String, Status>> statusFile;
     private final ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor();
     private final ScheduledExecutorService ticker = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "fleet-status");
@@ -95,6 +99,7 @@ public class FleetService {
         this.secrets = secrets;
         this.props = props;
         this.events = events;
+        this.statusFile = StateFile.beside(store.file(), "status.json", new TypeReference<Map<String, Status>>() {});
     }
 
     /** Published after every status check; alerts listen to it. */
@@ -102,6 +107,7 @@ public class FleetService {
 
     @PostConstruct
     void start() {
+        restoreStatus();
         long every = Math.max(5, props.status().interval().toSeconds());
         ticker.scheduleWithFixedDelay(() -> {
             try {
@@ -156,6 +162,25 @@ public class FleetService {
         clients.remove(name);
         tokens.remove(name);
         status.remove(name);
+        saveStatus();
+    }
+
+    /** Load the last known status of hosts that are still in fleet.yml. The first check replaces it. */
+    void restoreStatus() {
+        Map<String, Status> saved = statusFile.read();
+        if (saved == null) {
+            return;
+        }
+        saved.forEach((name, s) -> {
+            if (s != null && s.state() != null && store.find(name).isPresent()) {
+                status.putIfAbsent(name, s);
+            }
+        });
+        log.info("Restored last known status of {} host(s) from {}", status.size(), statusFile.file());
+    }
+
+    void saveStatus() {
+        statusFile.write(new LinkedHashMap<>(status));
     }
 
     // ------------------------------------------------------------------ status
@@ -177,6 +202,7 @@ public class FleetService {
         List<Host> hosts = store.snapshot().fleet().hosts();
         status.keySet().retainAll(hosts.stream().map(Host::name).toList());
         fanOut(hosts.stream().map(Host::name).toList(), this::refresh);
+        saveStatus();
     }
 
     public Status refresh(String name) {
