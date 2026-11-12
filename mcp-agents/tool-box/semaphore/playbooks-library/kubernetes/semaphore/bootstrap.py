@@ -22,7 +22,7 @@ import sys
 import urllib.error
 import urllib.request
 
-LIB = "mcp-agents/semaphore/playbooks-library/kubernetes"
+LIB = "mcp-agents/tool-box/semaphore/playbooks-library/kubernetes"
 
 
 def catalog(inv: str):
