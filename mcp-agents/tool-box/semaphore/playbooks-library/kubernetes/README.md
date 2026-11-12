@@ -61,7 +61,7 @@ by name) a project for one inventory with its repository, inventory, variable gr
 template in the table. Re-run it after adding a template or inventory, or to switch the repository URL.
 
 ```bash
-cd mcp-agents/semaphore/playbooks-library
+cd mcp-agents/tool-box/semaphore/playbooks-library
 SEMAPHORE_URL=http://192.168.1.42:3000 SEMAPHORE_TOKEN=<admin API token> \
   python3 kubernetes/semaphore/bootstrap.py --inventory proxmox01                  # repository: GitHub, main
 #   --repo /opt/ai-labs     use a local copy on the Semaphore server instead (same layout)
@@ -80,7 +80,7 @@ Step 1 (the SSH key) is done on the server. Paths below are relative to the repo
    `none`. To use changes before pushing, a local copy on the Semaphore server works too: repository
    URL `/opt/ai-labs` with the same layout, so template paths do not change.
 3. **Inventory** `proxmox01`: type *File*, repository `ai-labs`, path
-   `mcp-agents/semaphore/playbooks-library/kubernetes/inventories/proxmox01/hosts.yaml`, user credentials
+   `mcp-agents/tool-box/semaphore/playbooks-library/kubernetes/inventories/proxmox01/hosts.yaml`, user credentials
    `none`, sudo credentials *none* (the nodes have passwordless sudo).
 4. **Variable Groups**
    * `default`: extra variables `{}`.
@@ -90,7 +90,7 @@ Step 1 (the SSH key) is done on the server. Paths below are relative to the repo
 
 | Template | App | Playbook / script | Arguments | Inventory | Variable group |
 |---|---|---|---|---|---|
-| Linux: ping | Ansible | `mcp-agents/semaphore/playbooks-library/kubernetes/ping.yml` | | proxmox01 | default |
+| Linux: ping | Ansible | `mcp-agents/tool-box/semaphore/playbooks-library/kubernetes/ping.yml` | | proxmox01 | default |
 | Linux: static IP | Ansible | `.../kubernetes/static-ip.yml` | | proxmox01 | default |
 | K8s: MetalLB | Ansible | `.../kubernetes/metallb.yml` | | proxmox01 | default |
 | Kubespray: preflight | Bash | `.../kubernetes/kubespray/kubespray.sh` | `["preflight"]` | proxmox01 | kubespray-proxmox01 |
@@ -113,7 +113,7 @@ project `<name>` with the same templates. Every playbook works with it unchanged
 ## Testing without Semaphore
 
 ```bash
-cd mcp-agents/semaphore/playbooks-library/kubernetes
+cd mcp-agents/tool-box/semaphore/playbooks-library/kubernetes
 ansible-playbook -i inventories/proxmox01/hosts.yaml --syntax-check ping.yml
 ansible-playbook -i inventories/proxmox01/hosts.yaml ping.yml
 ansible-playbook -i inventories/proxmox01/hosts.yaml metallb.yml --check --diff
