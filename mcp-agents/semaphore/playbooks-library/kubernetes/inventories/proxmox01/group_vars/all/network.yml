@@ -1,0 +1,6 @@
+# static-ip.yml: pins each node's inventory `ip` as a static netplan address.
+static_ip_interface: eth0
+static_ip_prefix: 24
+static_ip_gateway: 192.168.1.1
+static_ip_nameservers: [192.168.1.1]
+static_ip_search: [powerhub]

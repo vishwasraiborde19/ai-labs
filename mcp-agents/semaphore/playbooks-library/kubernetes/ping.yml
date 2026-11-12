@@ -1,0 +1,27 @@
+---
+# Connectivity check: SSH, Python, sudo, OS and uptime of every host. Changes nothing.
+# Good first template for any new inventory or key.
+#   target   host pattern (extra var), default all
+- name: Ping
+  hosts: "{{ target | default('all') }}"
+  gather_facts: true
+  gather_subset: [min]
+  tasks:
+    - name: sudo works
+      ansible.builtin.command: id -un
+      become: true
+      register: who
+      changed_when: false
+      check_mode: false   # read-only, so --check shows real values
+
+    - name: Uptime
+      ansible.builtin.command: uptime -p
+      register: up
+      changed_when: false
+      check_mode: false   # read-only, so --check shows real values
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg: >-
+          {{ ansible_facts.hostname }} | {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}
+          | kernel {{ ansible_facts.kernel }} | sudo as {{ who.stdout }} | {{ up.stdout }}

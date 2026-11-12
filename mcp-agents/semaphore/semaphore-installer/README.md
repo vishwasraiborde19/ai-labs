@@ -16,7 +16,7 @@ server, ready for Ansible playbooks and Terraform/OpenTofu projects.
 
 ```bash
 git clone https://github.com/vishwasraiborde19/ai-labs
-./ai-labs/mcp-agents/semaphore-installer/install-semaphore.sh
+./ai-labs/mcp-agents/semaphore/semaphore-installer/install-semaphore.sh
 ```
 
 Run it as a user with sudo. It takes about 2 minutes and finishes with the URL and a generated
@@ -57,3 +57,8 @@ sudo -u postgres pg_dump semaphore > semaphore.sql   # backup
 ```
 
 Semaphore serves plain HTTP. For HTTPS, put a reverse proxy (nginx or Caddy) in front of port 3000.
+
+## Playbooks
+
+Ready-made playbooks and the Semaphore settings for them (kubespray, MetalLB, static IPs, ping) are in
+[playbooks-library](../playbooks-library/).

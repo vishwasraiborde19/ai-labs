@@ -1,0 +1,88 @@
+---
+# MetalLB from its native manifests, plus address pools and L2 advertisements, applied with kubectl on
+# the first control-plane node (kubespray puts kubectl and /etc/kubernetes/admin.conf there).
+# Idempotent: re-running with the same version and pools changes nothing.
+#
+# Vars (inventory group_vars/all/metallb.yml):
+#   metallb_native_version     v0.15.2
+#   metallb_address_pools      [{name, addresses: [range or CIDR, ...], auto_assign: true}]
+#   metallb_l2_advertisements  [{name, pools: [pool names]}]   no pools = all pools
+#   metallb_kubectl_host       host to run kubectl on (default: first of kube_control_plane)
+- name: MetalLB
+  hosts: "{{ metallb_kubectl_host | default('kube_control_plane[0]') }}"
+  become: true
+  gather_facts: false
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  vars:
+    kubectl: /usr/local/bin/kubectl
+    manifest: "https://raw.githubusercontent.com/metallb/metallb/{{ metallb_native_version }}/config/manifests/metallb-native.yaml"
+  tasks:
+    - name: Check vars
+      ansible.builtin.assert:
+        that:
+          - metallb_native_version is match('^v\d+\.\d+\.\d+$')
+          - metallb_address_pools | length > 0
+        fail_msg: set metallb_native_version (e.g. v0.15.2) and at least one entry in metallb_address_pools
+
+    - name: Install / upgrade MetalLB {{ metallb_native_version }}
+      ansible.builtin.command: "{{ kubectl }} apply -f {{ manifest }}"
+      register: install
+      changed_when: install.stdout is search(' (created|configured)$', multiline=True)
+
+    - name: Wait for the controller
+      ansible.builtin.command: "{{ kubectl }} -n metallb-system rollout status deployment/controller --timeout=300s"
+      changed_when: false
+      check_mode: false   # read-only, so --check shows real values
+
+    - name: Wait for the speakers
+      ansible.builtin.command: "{{ kubectl }} -n metallb-system rollout status daemonset/speaker --timeout=300s"
+      changed_when: false
+      check_mode: false   # read-only, so --check shows real values
+
+    - name: Render pools and advertisements
+      ansible.builtin.copy:
+        dest: /root/metallb-config.yaml
+        mode: "0600"
+        content: |
+          {% for p in metallb_address_pools %}
+          ---
+          apiVersion: metallb.io/v1beta1
+          kind: IPAddressPool
+          metadata:
+            name: {{ p.name }}
+            namespace: metallb-system
+          spec:
+            addresses: {{ p.addresses | to_json }}
+            autoAssign: {{ p.auto_assign | default(true) | bool | to_json }}
+          {% endfor %}
+          {% for a in metallb_l2_advertisements | default([{'name': 'default-advertisement'}]) %}
+          ---
+          apiVersion: metallb.io/v1beta1
+          kind: L2Advertisement
+          metadata:
+            name: {{ a.name }}
+            namespace: metallb-system
+          {% if a.pools | default([]) | length > 0 %}
+          spec:
+            ipAddressPools: {{ a.pools | to_json }}
+          {% endif %}
+          {% endfor %}
+
+    - name: Apply pools and advertisements (retries while the webhook starts)
+      ansible.builtin.command: "{{ kubectl }} apply -f /root/metallb-config.yaml"
+      register: cfg
+      retries: 12
+      delay: 10
+      until: cfg.rc == 0
+      changed_when: cfg.stdout is search(' (created|configured)$', multiline=True)
+
+    - name: Current MetalLB config
+      ansible.builtin.command: "{{ kubectl }} -n metallb-system get ipaddresspools,l2advertisements"
+      register: show
+      changed_when: false
+      check_mode: false   # read-only, so --check shows real values
+
+    - name: Show
+      ansible.builtin.debug:
+        var: show.stdout_lines

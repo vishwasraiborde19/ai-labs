@@ -1,0 +1,8 @@
+# metallb.yml. MetalLB is installed from its native manifests, not by kubespray
+# (kubespray's metallb_enabled stays false), so these names avoid kubespray's own metallb_* vars.
+metallb_native_version: v0.15.2
+metallb_address_pools:
+  - name: first-pool
+    addresses: [192.168.1.230-192.168.1.250]
+metallb_l2_advertisements:
+  - name: default-advertisement      # no pools listed: advertises every pool

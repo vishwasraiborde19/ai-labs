@@ -1,0 +1,5 @@
+# Passed to kubespray with -e (highest precedence), as cluster-variable.yaml was on the installer VM.
+# Everything else is kubespray v2.23.0's inventory/sample/group_vars, unchanged.
+kube_version: v1.27.5
+helm_enabled: true
+kube_proxy_mode: iptables

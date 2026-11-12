@@ -1,0 +1,94 @@
+---
+# Pin each node's current inventory IP as a static netplan config (IPv6 router advertisements kept) and
+# stop cloud-init from regenerating the network config. Ubuntu with netplan.
+# One node at a time by default, so a cluster keeps quorum if a node does not come back.
+#
+# Vars (inventory group_vars/all/network.yml):
+#   static_ip_interface    eth0
+#   static_ip_address      default: the host's `ip`, else ansible_host
+#   static_ip_prefix       24
+#   static_ip_gateway      192.168.1.1
+#   static_ip_nameservers  [192.168.1.1]
+#   static_ip_search       []
+#   static_ip_hosts        host pattern (extra var), default all
+#   static_ip_serial       nodes changed at once (extra var), default 1
+- name: Static IP
+  hosts: "{{ static_ip_hosts | default('all') }}"
+  serial: "{{ static_ip_serial | default(1) }}"
+  become: true
+  gather_facts: false
+  vars:
+    address: "{{ static_ip_address | default(ip) | default(ansible_host) }}"
+  tasks:
+    - name: Check vars
+      ansible.builtin.assert:
+        that:
+          - address is match('^\d+\.\d+\.\d+\.\d+$')
+          - static_ip_gateway is defined
+        fail_msg: need an IPv4 address (ip / ansible_host / static_ip_address) and static_ip_gateway
+
+    - name: Stop cloud-init from regenerating network config
+      ansible.builtin.copy:
+        dest: /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+        content: "network: {config: disabled}\n"
+        mode: "0644"
+
+    - name: Read MAC of {{ static_ip_interface }}
+      ansible.builtin.command: cat /sys/class/net/{{ static_ip_interface }}/address
+      register: mac
+      changed_when: false
+      check_mode: false   # read-only, so --check shows real values
+
+    - name: Write static netplan
+      ansible.builtin.copy:
+        dest: /etc/netplan/01-static.yaml
+        mode: "0600"
+        content: |
+          network:
+            version: 2
+            ethernets:
+              {{ static_ip_interface }}:
+                match:
+                  macaddress: {{ mac.stdout }}
+                set-name: {{ static_ip_interface }}
+                dhcp4: false
+                accept-ra: true
+                addresses: [{{ address }}/{{ static_ip_prefix | default(24) }}]
+                routes:
+                  - to: default
+                    via: {{ static_ip_gateway }}
+                nameservers:
+                  addresses: {{ static_ip_nameservers | default([static_ip_gateway]) | to_json }}
+          {% if static_ip_search | default([]) | length > 0 %}
+                  search: {{ static_ip_search | to_json }}
+          {% endif %}
+      register: netplan
+
+    - name: Disable the cloud-init DHCP netplan
+      ansible.builtin.command: mv /etc/netplan/50-cloud-init.yaml /root/50-cloud-init.yaml.disabled
+      args:
+        removes: /etc/netplan/50-cloud-init.yaml
+      register: oldplan
+
+    - name: netplan generate (syntax check)
+      ansible.builtin.command: netplan generate
+      changed_when: false
+
+    - name: netplan apply (detached, so the SSH session survives)
+      ansible.builtin.shell: nohup sh -c 'sleep 2; netplan apply' >/dev/null 2>&1 &
+      when: netplan.changed or oldplan.changed
+
+    - name: Wait for the node to come back
+      ansible.builtin.wait_for_connection:
+        delay: 8
+        timeout: 90
+      when: netplan.changed or oldplan.changed
+
+    - name: Verify
+      ansible.builtin.shell: ip -4 route | head -2; ip -4 addr show {{ static_ip_interface }} | grep inet
+      register: verify
+      changed_when: false
+
+    - name: Show
+      ansible.builtin.debug:
+        var: verify.stdout_lines
