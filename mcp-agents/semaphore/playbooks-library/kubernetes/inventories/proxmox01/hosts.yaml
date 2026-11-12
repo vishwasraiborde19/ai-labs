@@ -1,0 +1,35 @@
+# proxmox01: 3 control-plane/etcd nodes + 3 workers (Ubuntu 22.04 on Proxmox).
+# Used by kubespray/kubespray.sh and by the Ansible playbooks of this library (Semaphore "file" inventory).
+all:
+  hosts:
+    control-panel-001: {ansible_host: 192.168.1.20, ip: 192.168.1.20, access_ip: 192.168.1.20}
+    control-panel-002: {ansible_host: 192.168.1.21, ip: 192.168.1.21, access_ip: 192.168.1.21}
+    control-panel-003: {ansible_host: 192.168.1.51, ip: 192.168.1.51, access_ip: 192.168.1.51}
+    kube-node-001: {ansible_host: 192.168.1.104, ip: 192.168.1.104, access_ip: 192.168.1.104}
+    kube-node-002: {ansible_host: 192.168.1.198, ip: 192.168.1.198, access_ip: 192.168.1.198}
+    kube-node-003: {ansible_host: 192.168.1.142, ip: 192.168.1.142, access_ip: 192.168.1.142}
+  children:
+    kube_control_plane:
+      hosts:
+        control-panel-001:
+        control-panel-002:
+        control-panel-003:
+    kube_node:
+      hosts:
+        control-panel-001:
+        control-panel-002:
+        control-panel-003:
+        kube-node-001:
+        kube-node-002:
+        kube-node-003:
+    etcd:
+      hosts:
+        control-panel-001:
+        control-panel-002:
+        control-panel-003:
+    k8s_cluster:
+      children:
+        kube_control_plane:
+        kube_node:
+    calico_rr:
+      hosts: {}
