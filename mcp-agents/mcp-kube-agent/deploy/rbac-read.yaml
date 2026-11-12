@@ -1,0 +1,88 @@
+# Service account for mcp-kube-agent, read access everywhere (Secrets excluded).
+#   kubectl apply -f deploy/rbac-read.yaml
+#   kubectl apply -f deploy/rbac-operate.yaml        # optional: let the agent change things
+# scripts/setup-service-account.sh does both and writes the agent's token and CA file.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-agent
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-agent
+  namespace: kube-agent
+---
+# Long-lived token for an agent running outside the cluster. Revoke it by deleting this Secret
+# (a new one is issued when it is re-created). An in-cluster agent uses its projected token instead.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kube-agent-token
+  namespace: kube-agent
+  annotations:
+    kubernetes.io/service-account.name: kube-agent
+type: kubernetes.io/service-account-token
+---
+# Cluster-scoped things the built-in "view" role leaves out.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kube-agent-cluster-read
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces", "persistentvolumes", "componentstatuses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["events.k8s.io"]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses", "csidrivers", "csinodes", "volumeattachments"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingressclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["scheduling.k8s.io"]
+    resources: ["priorityclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apiregistration.k8s.io"]
+    resources: ["apiservices"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles", "clusterrolebindings", "roles", "rolebindings"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kube-agent-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view                      # built-in: read namespaced objects, not Secrets
+subjects:
+  - kind: ServiceAccount
+    name: kube-agent
+    namespace: kube-agent
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kube-agent-cluster-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kube-agent-cluster-read
+subjects:
+  - kind: ServiceAccount
+    name: kube-agent
+    namespace: kube-agent

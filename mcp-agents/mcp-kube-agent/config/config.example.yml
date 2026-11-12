@@ -1,0 +1,30 @@
+# mcp-kube-agent configuration. Copy to ~/.kube-agent/config.yml (or point KUBE_AGENT_CONFIG at it).
+# scripts/setup-service-account.sh writes a first version for you.
+#
+# No secrets in this file. Every *-ref is a reference resolved when needed:
+#   path:<file>   contents of a file (service account token, CA certificate)
+#   env:<NAME>    environment variable of the agent process
+#   file:<key>    key in ~/.kube-agent/secrets.yml (chmod 600)
+
+kube:
+  access:
+    cache-ttl: 5m                      # tokens are re-read after this, so rotation needs no restart
+    # secrets-file: ~/.kube-agent/secrets.yml
+
+  clusters:                            # the first one is the default
+    - name: proxmox01
+      api-server: https://192.168.1.20:6443
+      token-ref: path:~/.kube-agent/proxmox01.token
+      ca-cert-ref: path:~/.kube-agent/proxmox01-ca.pem
+      # insecure-skip-tls-verify: false
+      read-only: false                 # true: every change is refused
+      allowed-namespaces: []           # empty: all namespaces; otherwise only these
+      protected-namespaces: [kube-system, kube-public, kube-node-lease]   # readable, never changed
+      cluster-scoped-writes: false     # true: nodes (cordon/drain), namespaces, CRDs, RBAC may change
+
+    # The agent running as a pod in the cluster it manages (see deploy/in-cluster.yaml):
+    # - name: in-cluster
+    #   in-cluster: true
+
+  http:
+    auth-token-ref: env:KUBE_AGENT_TOKEN   # only for --spring.profiles.active=http

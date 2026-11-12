@@ -1,0 +1,18 @@
+# Activate with --spring.profiles.active=http to serve MCP over streamable HTTP at /mcp
+# (bearer token from kube.http.auth-token-ref) and an unauthenticated /healthz.
+spring:
+  main:
+    web-application-type: servlet
+  ai:
+    mcp:
+      server:
+        stdio: false
+        protocol: STREAMABLE
+
+server:
+  address: ${KUBE_AGENT_HOST:127.0.0.1}
+  port: ${KUBE_AGENT_PORT:8767}
+
+kube:
+  http:
+    auth-token-ref: ${KUBE_AGENT_TOKEN_REF:env:KUBE_AGENT_TOKEN}

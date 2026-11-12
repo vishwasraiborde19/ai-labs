@@ -5,6 +5,7 @@
     <option name="originalFiles">
       <list>
         <option value="$PROJECT_DIR$/mcp-agents/mcp-devops-agent/pom.xml" />
+        <option value="$PROJECT_DIR$/mcp-agents/mcp-kube-agent/pom.xml" />
       </list>
     </option>
   </component>

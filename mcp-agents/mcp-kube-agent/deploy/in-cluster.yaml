@@ -1,0 +1,78 @@
+# Run the agent inside the cluster it manages, as the kube-agent service account (no token file:
+# it uses the pod's projected token). Apply rbac-read.yaml (and rbac-operate.yaml) first.
+#
+#   docker build -t <registry>/mcp-kube-agent:0.1.0 . && docker push <registry>/mcp-kube-agent:0.1.0
+#   kubectl -n kube-agent create secret generic kube-agent-http --from-literal=token=$(openssl rand -base64 32)
+#   kubectl apply -f deploy/in-cluster.yaml       # after setting the image below
+#   claude mcp add --transport http kube http://<node-or-lb-ip>:<port>/mcp --header "Authorization: Bearer <token>"
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kube-agent-config
+  namespace: kube-agent
+data:
+  config.yml: |
+    kube:
+      clusters:
+        - name: in-cluster
+          in-cluster: true
+          read-only: false
+          protected-namespaces: [kube-system, kube-public, kube-node-lease, kube-agent]
+          cluster-scoped-writes: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-agent
+  namespace: kube-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: kube-agent}
+  template:
+    metadata:
+      labels: {app: kube-agent}
+    spec:
+      serviceAccountName: kube-agent
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: agent
+          image: REPLACE_ME/mcp-kube-agent:0.1.0
+          args: ["--spring.profiles.active=http"]
+          env:
+            - {name: KUBE_AGENT_HOST, value: "0.0.0.0"}
+            - {name: KUBE_AGENT_CONFIG, value: /etc/kube-agent/config.yml}
+            - {name: KUBE_AGENT_LOG_DIR, value: /var/log/kube-agent}
+            - name: KUBE_AGENT_TOKEN
+              valueFrom: {secretKeyRef: {name: kube-agent-http, key: token}}
+          ports: [{name: http, containerPort: 8767}]
+          readinessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 30, periodSeconds: 20}
+          resources:
+            requests: {cpu: 50m, memory: 256Mi}
+            limits: {memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: config, mountPath: /etc/kube-agent}
+            - {name: logs, mountPath: /var/log/kube-agent}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: config, configMap: {name: kube-agent-config}}
+        - {name: logs, emptyDir: {}}
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-agent
+  namespace: kube-agent
+spec:
+  type: LoadBalancer            # MetalLB hands out an IP; use NodePort or ClusterIP + ingress otherwise
+  selector: {app: kube-agent}
+  ports: [{name: http, port: 8767, targetPort: http}]
