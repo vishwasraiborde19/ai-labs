@@ -13,7 +13,7 @@
 #     recover      recover-control-plane.yml  rebuild broken etcd / control-plane members
 #     reset        reset.yml                  DESTROYS the cluster; needs --confirm-reset=<inventory name>
 #
-# Environment:
+# Environment (kubespray.env may also set ANSIBLE_CORE_VERSION to pin ansible-core in the venv):
 #   INVENTORY        directory under ../inventories                   (default: proxmox01)
 #   KUBESPRAY_HOME   cache for checkouts, venvs, run inventories      (default: ~/.cache/kubespray)
 #   ANSIBLE_USER     SSH user on the nodes      (default: from the inventory's kubespray.env)
@@ -35,12 +35,13 @@ INV=$(cd "$HERE/../inventories/$INVENTORY" 2>/dev/null && pwd) \
   || { echo "No inventory '$INVENTORY' in $HERE/../inventories"; exit 2; }
 [ -f "$INV/hosts.yaml" ] || { echo "$INV/hosts.yaml is missing"; exit 2; }
 
-KUBESPRAY_VERSION="" KUBESPRAY_REPO=https://github.com/kubernetes-sigs/kubespray.git ENV_USER=""
+KUBESPRAY_VERSION="" KUBESPRAY_REPO=https://github.com/kubernetes-sigs/kubespray.git ENV_USER="" ANSIBLE_CORE_VERSION=""
 if [ -f "$INV/kubespray.env" ]; then
   # shellcheck disable=SC1091
   KUBESPRAY_VERSION=$(. "$INV/kubespray.env"; echo "${KUBESPRAY_VERSION:-}")
   KUBESPRAY_REPO=$(. "$INV/kubespray.env"; echo "${KUBESPRAY_REPO:-$KUBESPRAY_REPO}")
   ENV_USER=$(. "$INV/kubespray.env"; echo "${ANSIBLE_USER:-}")
+  ANSIBLE_CORE_VERSION=$(. "$INV/kubespray.env"; echo "${ANSIBLE_CORE_VERSION:-}")
 fi
 [ -n "$KUBESPRAY_VERSION" ] || { echo "Set KUBESPRAY_VERSION in $INV/kubespray.env"; exit 2; }
 ANSIBLE_USER=${ANSIBLE_USER:-${ENV_USER:-$(id -un)}}
@@ -94,13 +95,14 @@ if [ ! -f "$SRC/cluster.yml" ]; then
 fi
 
 # ------------------------------------------------------------------ Python venv (kubespray's own requirements)
-REQ_HASH=$(sha256sum "$SRC/requirements.txt" | cut -c1-16)
+REQ_HASH=$({ cat "$SRC/requirements.txt"; echo "ansible-core=$ANSIBLE_CORE_VERSION"; } | sha256sum | cut -c1-16)
 if [ "$(cat "$VENV/.requirements" 2>/dev/null)" != "$REQ_HASH" ]; then
   say "Creating venv for kubespray $KUBESPRAY_VERSION (requirements.txt)"
   rm -rf "$VENV"
   python3 -m venv "$VENV" || { echo "python3 -m venv failed: install the python3-venv package"; exit 1; }
   "$VENV/bin/pip" install -q --upgrade pip
   "$VENV/bin/pip" install -q -r "$SRC/requirements.txt"
+  [ -z "$ANSIBLE_CORE_VERSION" ] || "$VENV/bin/pip" install -q "ansible-core==$ANSIBLE_CORE_VERSION"
   echo "$REQ_HASH" > "$VENV/.requirements"
 fi
 
