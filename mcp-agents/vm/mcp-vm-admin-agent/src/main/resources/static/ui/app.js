@@ -183,7 +183,7 @@ function setView(v) {
   $('side').classList.remove('open');
   renderSide();
   ({ fleet: renderFleet, broadcast: renderBroadcast, audit: renderAudit, host: renderHost,
-    sync: renderSync, schedules: renderSchedules, alerts: renderAlerts })[v]();
+    sync: renderSync, schedules: renderSchedules, alerts: renderAlerts, hypervisor: renderHypervisor })[v]();
   $('main').focus({ preventScroll: true });
 }
 function openHost(name, tab) {

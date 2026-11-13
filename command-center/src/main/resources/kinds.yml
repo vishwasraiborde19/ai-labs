@@ -1,0 +1,467 @@
+# Built-in system kinds. Each brings an icon, a category (a lane in the architecture view, in the
+# order below), suggested links, an optional health path and a usage guide in markdown.
+# Placeholders in guides are filled from the system's own links:
+#   {{name}} {{id}} {{url}} (first link) {{ui}} {{api}} {{mcp}} {{docs}} {{metrics}} {{host}} (host of the first link)
+
+categories:
+  - id: access
+    label: Identity & access
+    description: Who you are and what you may do. Every other system trusts these.
+  - id: delivery
+    label: Build & delivery
+    description: From a commit to a deployable artifact, and the automation that ships it.
+  - id: platform
+    label: Runtime platform
+    description: Where applications run and where they get their configuration.
+  - id: apps
+    label: Applications
+    description: The services the platform exists for.
+  - id: data
+    label: Data
+    description: Databases, search and storage.
+  - id: observability
+    label: Observability
+    description: Metrics, logs and traces, and the dashboards and alerts on top.
+  - id: infrastructure
+    label: Infrastructure
+    description: Hypervisors, VMs and the tools that administer them.
+  - id: agents
+    label: AI agents
+    description: MCP agents that operate the systems, and the orchestrator that coordinates them.
+
+kinds:
+  - id: generic
+    label: Other system
+    category: apps
+    abbr: "?"
+    color: "#6b7280"
+    summary: Any web application or service.
+    linkHints: {ui: Web UI, docs: Documentation}
+    guide: |
+      ## Using {{name}}
+      Open {{url}}. Add the instance-specific steps in the **Usage** field when you edit this entry:
+      how to get an account, what it is used for, and who to ask.
+
+  - id: keycloak
+    label: Keycloak
+    category: access
+    abbr: KC
+    color: "#4d4dff"
+    summary: Single sign-on (OIDC / SAML) for every web UI and API in the lab.
+    linkHints: {ui: Admin console, api: OIDC discovery, docs: Documentation}
+    guide: |
+      ## What it is
+      Keycloak is the lab's identity provider. Grafana, Semaphore, Kubernetes (kubectl via kubelogin)
+      and other tools redirect you here to log in, so **one account works everywhere**.
+
+      ## As a developer
+      - **Log in to a tool**: click *Sign in with Keycloak* on the tool's login page.
+      - **Change your password or set up 2FA**: open the account console, `{{url}}/realms/lab/account`.
+      - **Register a new app (OIDC client)**: in the admin console, *Clients → Create client*, type
+        *OpenID Connect*, set the redirect URI to your app's callback, and keep the client secret in the
+        password manager.
+      - **Discovery document** for libraries (Spring Security, oauth2-proxy, kubelogin):
+        `{{url}}/realms/lab/.well-known/openid-configuration`
+
+      ## Get a token from the command line
+      ```bash
+      curl -s -d grant_type=password -d client_id=<client> -d client_secret=<secret> \
+           -d username=<you> -d password=<pw> \
+           {{url}}/realms/lab/protocol/openid-connect/token | jq -r .access_token
+      ```
+
+      ## Good to know
+      - Groups in Keycloak map to roles in the tools (for example `grafana-admins`). Ask an admin to
+        add you to a group instead of creating local accounts in each tool.
+      - The admin console is for realm administrators only; normal users never need it.
+
+  - id: password-manager
+    label: Password manager
+    category: access
+    abbr: PW
+    color: "#175ddc"
+    summary: Where shared credentials live (Vaultwarden / Bitwarden, Vault, KeePassXC).
+    linkHints: {ui: Web vault}
+    guide: |
+      ## What it is
+      The one place for shared passwords, API tokens and keys. Entries in this command center point to
+      it (*Credentials: Vaultwarden → Lab / Grafana admin*) instead of holding secrets.
+
+      ## As a developer
+      - Install the browser extension and log in to {{url}}; it fills logins on lab tools.
+      - Use the shared collection for lab systems; keep personal secrets in your own vault.
+      - **Never paste secrets** into chat, tickets, git or this catalog. Rotate anything that leaks.
+
+  - id: git
+    label: Git server
+    category: delivery
+    abbr: GIT
+    color: "#f05133"
+    summary: Source code, pull requests and webhooks that trigger builds (GitHub, GitLab, Gitea).
+    linkHints: {ui: Repositories}
+    guide: |
+      ## As a developer
+      - Clone over SSH: add your public key in your profile, then `git clone git@{{host}}:<org>/<repo>.git`.
+      - Work on a branch, open a pull request, and let CI (Jenkins) build it before merging.
+      - Webhooks on the repository start the pipeline; check *Settings → Webhooks* if builds don't start.
+
+  - id: jenkins
+    label: Jenkins
+    category: delivery
+    abbr: JK
+    color: "#d33833"
+    summary: CI/CD pipelines that build, test, push images and deploy.
+    healthPath: /login
+    linkHints: {ui: Jenkins, api: API}
+    guide: |
+      ## What it is
+      Jenkins runs the pipelines: build and test the code, build a container image, push it to Harbor and
+      deploy it to Kubernetes. The **devops agent** can generate and run these pipelines for you.
+
+      ## As a developer
+      - Put a `Jenkinsfile` in your repository; a multibranch job picks up every branch.
+      - Pipeline status and logs: {{ui}} → your job → the build number → *Console Output*.
+      - Credentials (Harbor robot account, kubeconfig) are stored in Jenkins *Credentials*, referenced by id:
+        ```groovy
+        withCredentials([usernamePassword(credentialsId: 'harbor-robot', usernameVariable: 'U', passwordVariable: 'P')]) {
+          sh 'docker login {{host}} -u $U -p $P'
+        }
+        ```
+      - Trigger from the command line: `curl -X POST -u <you>:<api-token> {{url}}/job/<job>/build`
+
+  - id: semaphore
+    label: Semaphore UI
+    category: delivery
+    abbr: SEM
+    color: "#5b7d3c"
+    summary: Runs Ansible playbooks, Terraform and OpenTofu from a web UI, with history and schedules.
+    healthPath: /api/ping
+    linkHints: {ui: Semaphore}
+    guide: |
+      ## What it is
+      Semaphore runs infrastructure automation: the Kubernetes cluster (kubespray), VM setup and other
+      playbooks from the **playbooks-library** repository.
+
+      ## As a developer
+      - Log in at {{ui}} (Keycloak SSO when configured).
+      - **Run a task**: *Task Templates* → pick a template → *Run*. Watch the live log; every run is kept.
+      - **Add a playbook**: commit it to the playbooks repository, then add a *Task Template* pointing at it
+        with the right *Inventory* and *Environment*.
+      - Secrets (SSH keys, vault passwords) live in the *Key Store*, never in the repository.
+
+  - id: harbor
+    label: Harbor
+    category: delivery
+    abbr: HB
+    color: "#4a90d9"
+    summary: Private container registry with vulnerability scanning, robot accounts and replication.
+    healthPath: /api/v2.0/health
+    linkHints: {ui: Harbor portal, api: API v2.0}
+    guide: |
+      ## What it is
+      Harbor stores the lab's container images and Helm charts. Images are scanned for vulnerabilities on
+      push; Kubernetes pulls from here.
+
+      ## As a developer
+      ```bash
+      docker login {{host}}                      # your Harbor or Keycloak account
+      docker tag myapp:1.0 {{host}}/<project>/myapp:1.0
+      docker push {{host}}/<project>/myapp:1.0
+      ```
+      - **Projects** group repositories and permissions; ask for developer access to your team's project.
+      - **CI uses robot accounts** (*Project → Robot Accounts*), never a personal login.
+      - **Kubernetes pull secret**:
+        ```bash
+        kubectl create secret docker-registry harbor-pull --docker-server={{host}} \
+          --docker-username='robot$<project>+<name>' --docker-password=<token> -n <namespace>
+        ```
+      - Check scan results under *Project → Repository → Artifact → Vulnerabilities* before releasing.
+      - Self-signed certificate? Put the CA in `/etc/docker/certs.d/{{host}}/ca.crt` on each Docker host
+        and in the containerd config on Kubernetes nodes.
+
+  - id: argocd
+    label: Argo CD
+    category: delivery
+    abbr: ARGO
+    color: "#ef7b4d"
+    summary: GitOps continuous delivery to Kubernetes.
+    healthPath: /healthz
+    linkHints: {ui: Argo CD}
+    guide: |
+      ## As a developer
+      - Each application syncs a Git path to a cluster namespace. Change the manifests in Git; Argo CD applies them.
+      - `argocd login {{host}} --sso` then `argocd app get <app>` / `argocd app sync <app>`.
+      - *Out of sync* means the cluster differs from Git: check the diff in the UI before syncing.
+
+  - id: kubernetes
+    label: Kubernetes
+    category: platform
+    abbr: K8S
+    color: "#326ce5"
+    summary: Container platform where the applications run.
+    healthPath: /readyz
+    linkHints: {api: API server, ui: Dashboard / Headlamp}
+    guide: |
+      ## What it is
+      The lab cluster (kubespray on Proxmox VMs) runs the applications. Images come from Harbor,
+      configuration from the Spring Cloud Config Server, telemetry goes to the OpenTelemetry Collector.
+
+      ## Get access
+      1. Ask for a namespace and a kubeconfig (OIDC via Keycloak with **kubelogin**, or a service account).
+      2. `kubectl config use-context <lab>` and check: `kubectl get ns`
+
+      ## Everyday commands
+      ```bash
+      kubectl -n <ns> get pods,svc,ingress
+      kubectl -n <ns> logs deploy/<app> -f
+      kubectl -n <ns> describe pod <pod>            # events explain most failures
+      kubectl -n <ns> rollout restart deploy/<app>
+      kubectl -n <ns> rollout undo deploy/<app>     # back to the previous version
+      kubectl -n <ns> port-forward svc/<app> 8080:80
+      ```
+
+      ## Good to know
+      - `ImagePullBackOff`: wrong image name or missing Harbor pull secret.
+      - `CrashLoopBackOff`: the app exits; read `kubectl logs --previous`.
+      - The **kube agent** can do all of this for you through Claude Code, within its namespace policy.
+
+  - id: spring-config-server
+    label: Spring Cloud Config Server
+    category: platform
+    abbr: CFG
+    color: "#6db33f"
+    summary: Central, versioned configuration for Spring Boot services, backed by Git.
+    healthPath: /actuator/health
+    linkHints: {api: Config server, repo: Config repository}
+    guide: |
+      ## What it is
+      Services read their configuration (`application.yml` per app and profile) from the config server
+      at startup, instead of baking it into the image. The files live in a Git repository, so every
+      change is reviewed and versioned.
+
+      ## Use it from a Spring Boot service
+      ```yaml
+      # application.yml
+      spring:
+        application:
+          name: orders              # looks up orders.yml and orders-<profile>.yml
+        config:
+          import: "optional:configserver:{{url}}"
+        profiles:
+          active: dev
+      ```
+      Dependency: `org.springframework.cloud:spring-cloud-starter-config`.
+
+      ## See what a service gets
+      ```bash
+      curl {{url}}/orders/dev            # merged properties for app "orders", profile "dev"
+      curl {{url}}/orders/dev/main       # from the main branch (label)
+      ```
+
+      ## Change a value
+      1. Edit `orders-dev.yml` in the config repository and merge the pull request.
+      2. Restart the pods, or call `POST /actuator/refresh` on services that use `@RefreshScope`.
+
+      ## Good to know
+      - Secrets: use `{cipher}...` values (the server's encrypt endpoint) or a Vault backend, never plain text.
+      - Not found? The app name and profile must match the file name exactly.
+
+  - id: spring-boot-app
+    label: Spring Boot service
+    category: apps
+    abbr: SB
+    color: "#6db33f"
+    summary: An application service built with Spring Boot.
+    healthPath: /actuator/health
+    linkHints: {ui: App, api: API, docs: OpenAPI / Swagger, metrics: Actuator metrics}
+    guide: |
+      ## Useful endpoints
+      - Health: `{{url}}/actuator/health`
+      - API docs (springdoc): `{{url}}/swagger-ui.html`
+      - Metrics go to Prometheus via the OpenTelemetry Collector; dashboards are in Grafana.
+
+      ## Run it locally against the lab
+      ```bash
+      SPRING_PROFILES_ACTIVE=dev SPRING_CONFIG_IMPORT=optional:configserver:<config-server-url> ./mvnw spring-boot:run
+      ```
+
+  - id: postgres
+    label: PostgreSQL
+    category: data
+    abbr: PG
+    color: "#336791"
+    summary: Relational database.
+    guide: |
+      ## Connect
+      ```bash
+      psql "host={{host}} port=5432 dbname=<db> user=<user> sslmode=prefer"
+      ```
+      Credentials are in the password manager; ask for your own role instead of sharing the owner account.
+
+  - id: elasticsearch
+    label: Elasticsearch
+    category: data
+    abbr: ES
+    color: "#00bfb3"
+    summary: Search and log storage.
+    healthPath: /_cluster/health
+    linkHints: {api: Elasticsearch API}
+    guide: |
+      ## As a developer
+      ```bash
+      curl -u <user> {{url}}/_cluster/health?pretty
+      curl -u <user> "{{url}}/<index>/_search?q=level:ERROR&size=20&pretty"
+      ```
+      Prefer Kibana for browsing logs; use API keys (not the elastic superuser) for applications.
+
+  - id: kibana
+    label: Kibana
+    category: observability
+    abbr: KB
+    color: "#e8478b"
+    summary: Explore logs and build dashboards on Elasticsearch.
+    healthPath: /api/status
+    linkHints: {ui: Kibana}
+    guide: |
+      ## As a developer
+      - *Discover*: pick the logs data view, filter with KQL, e.g. `service.name : "orders" and log.level : "error"`.
+      - Save searches and add them to a dashboard for your service.
+
+  - id: otel-collector
+    label: OpenTelemetry Collector
+    category: observability
+    abbr: OTEL
+    color: "#425cc7"
+    summary: Receives metrics, logs and traces (OTLP) from apps and forwards them to the backends.
+    linkHints: {api: OTLP HTTP endpoint, health: Health check}
+    guide: |
+      ## What it is
+      Applications send all telemetry to the collector with the standard **OTLP** protocol; the
+      collector routes metrics to Prometheus (and logs/traces to their backends). Apps never talk to
+      Prometheus directly, so backends can change without touching code.
+
+      ## Instrument a service
+      ```bash
+      export OTEL_EXPORTER_OTLP_ENDPOINT=http://{{host}}:4318     # HTTP; gRPC is :4317
+      export OTEL_SERVICE_NAME=orders
+      export OTEL_RESOURCE_ATTRIBUTES=deployment.environment=dev
+      java -javaagent:opentelemetry-javaagent.jar -jar app.jar   # zero-code instrumentation for Java
+      ```
+      For Kubernetes, set the same variables in the Deployment.
+
+      ## Check it works
+      Metrics appear in Prometheus within a minute (`target_info{service_name="orders"}`), then in Grafana.
+
+  - id: prometheus
+    label: Prometheus
+    category: observability
+    abbr: PROM
+    color: "#e6522c"
+    summary: Time-series metrics store and query engine (PromQL); receives OTLP metrics.
+    healthPath: /-/ready
+    linkHints: {ui: Prometheus}
+    guide: |
+      ## As a developer
+      - Query at {{ui}}/graph, but build dashboards in Grafana.
+      - Useful queries:
+        ```promql
+        up                                                     # every scrape target and whether it is up
+        rate(http_server_request_duration_seconds_count[5m])   # request rate per service (OTel names)
+        histogram_quantile(0.95, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket[5m])))
+        ```
+      - Scrape targets and their errors: {{ui}}/targets
+      - OTLP attributes `service.name` etc. become labels `service_name`.
+
+  - id: grafana
+    label: Grafana
+    category: observability
+    abbr: GF
+    color: "#f46800"
+    summary: Dashboards and alerting over Prometheus, Elasticsearch and more.
+    healthPath: /api/health
+    linkHints: {ui: Grafana}
+    guide: |
+      ## As a developer
+      - Log in at {{ui}} (Keycloak SSO when configured).
+      - *Explore* to query metrics ad hoc; *Dashboards* for saved views.
+      - Import community dashboards by id: *Dashboards → New → Import*, e.g. **1860** (Node Exporter Full).
+      - Alerts: *Alerting → Alert rules*; route them to a contact point (Slack, email, webhook).
+      - Keep dashboards as JSON in Git when they matter; the UI is for exploring.
+
+  - id: proxmox
+    label: Proxmox VE
+    category: infrastructure
+    abbr: PVE
+    color: "#e57000"
+    summary: Hypervisor cluster that runs every VM in the lab.
+    healthPath: /api2/json/version
+    linkHints: {ui: Proxmox web UI}
+    guide: |
+      ## What it is
+      All lab VMs (Kubernetes nodes, Keycloak, Semaphore, the observability server, ...) run on this
+      Proxmox VE cluster. Any node's web UI manages the whole cluster.
+
+      ## As a developer
+      - Usually you don't need it: the **VM control centre**'s Hypervisor tab lists every VM read-only.
+      - Web UI: {{ui}} (port 8006, self-signed certificate).
+      - Need a VM? Clone from a template (*right-click template → Clone*), or ask an admin.
+      - Automation uses API tokens (*Datacenter → Permissions → API Tokens*), never a personal password.
+
+  - id: vm-control-centre
+    label: VM control centre
+    category: infrastructure
+    abbr: VMC
+    color: "#2457d6"
+    summary: Fleet dashboard, terminal, files, services and Proxmox view for the lab VMs.
+    linkHints: {ui: Control centre, mcp: MCP endpoint}
+    guide: |
+      ## What it is
+      The **mcp-vm-admin-agent**: one UI over every VM that runs the worker agent. Overview, web terminal,
+      file browser and editor, services, packages, logs, alerts, schedules, and the Proxmox hypervisor view.
+
+      ## Use it
+      - UI: {{ui}} (local only; from another machine use an SSH tunnel:
+        `ssh -L 8767:127.0.0.1:8767 <admin-host>`).
+      - From Claude Code: the MCP endpoint {{mcp}} gives `fleet_*`, `host_*` and `pve_*` tools.
+      - Risky commands (reboot, rm -rf, stopping services) ask for a typed confirmation and are audited.
+
+  - id: mcp-agent
+    label: MCP agent
+    category: agents
+    abbr: MCP
+    color: "#8b5cf6"
+    summary: An AI agent (MCP server) that operates a system for you through Claude Code or the orchestrator.
+    linkHints: {mcp: MCP endpoint, docs: README}
+    guide: |
+      ## What it is
+      An MCP server exposes tools (run a command, deploy, list pods, ...) that an LLM can call. Use it
+      directly from Claude Code, or let the **orchestrator** delegate work to it.
+
+      ## Add it to Claude Code
+      ```bash
+      claude mcp add --transport http --scope user {{id}} {{mcp}} \
+        --header "Authorization: Bearer <token from the password manager>"
+      ```
+      Then run `/mcp` in Claude Code to check it is connected and see its tools.
+
+      ## Good to know
+      - Each agent has its own token; never share one between people or paste it in chat.
+      - Dangerous tools ask for confirmation; the agent's audit log records every call.
+
+  - id: orchestrator
+    label: MCP orchestrator
+    category: agents
+    abbr: ORC
+    color: "#7c3aed"
+    summary: Coordinates the MCP agents as a team; delegate tasks and missions to them from one UI.
+    linkHints: {ui: Orchestrator UI}
+    guide: |
+      ## What it is
+      The **mcp-orchestrator-agent** shows every agent as a team member, plans missions across agents,
+      runs chains of steps and asks for human approval on chosen tools. Agents register with it
+      (self-registration, drop-in files or discovery); this command center imports that registry.
+
+      ## Use it
+      - UI: {{ui}} (local only; tunnel with `ssh -L 8770:127.0.0.1:8770 <host>`).
+      - Start the local agent stack: `mcp-agents/agents.sh start` (devops, kube, orchestrator).
+      - Give a task to one agent (*Delegate*), or a goal to the team (*Mission*); approve risky steps when asked.

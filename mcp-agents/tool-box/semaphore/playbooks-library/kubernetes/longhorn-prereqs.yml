@@ -1,0 +1,73 @@
+---
+# Host requirements for Longhorn (tool-box/kube/longhorn) on every Kubernetes node: the iSCSI initiator
+# (all volumes), the NFS client (ReadWriteMany volumes) and cryptsetup (encrypted volumes), with iscsid
+# running and the iscsi_tcp module loaded at boot. multipathd, if running, is told to leave Longhorn's
+# disks alone. Idempotent; run after adding nodes.
+#   target   host pattern (extra var), default k8s_cluster
+- name: Longhorn prerequisites
+  hosts: "{{ target | default('k8s_cluster') }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Packages
+      ansible.builtin.apt:
+        name: [open-iscsi, nfs-common, cryptsetup]
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: iscsi_tcp loaded at boot
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/longhorn.conf
+        content: "iscsi_tcp\n"
+        mode: "0644"
+
+    - name: iscsi_tcp loaded now (built into some kernels)
+      ansible.builtin.command: modprobe iscsi_tcp
+      changed_when: false
+
+    - name: iscsid running
+      ansible.builtin.systemd:
+        name: iscsid
+        enabled: true
+        state: started
+
+    - name: Is multipathd running
+      ansible.builtin.command: systemctl is-active multipathd
+      register: multipathd
+      changed_when: false
+      failed_when: false
+      check_mode: false   # read-only, so --check shows real values
+
+    - name: multipathd ignores Longhorn's sd devices
+      ansible.builtin.blockinfile:
+        path: /etc/multipath.conf
+        create: true
+        mode: "0644"
+        marker: "# {mark} ai-labs longhorn"
+        block: |
+          blacklist {
+              devnode "^sd[a-z0-9]+"
+          }
+      register: mp
+      when: multipathd.stdout == "active"
+
+    - name: Restart multipathd
+      ansible.builtin.systemd:
+        name: multipathd
+        state: restarted
+      when: mp is changed
+
+    - name: Summary
+      ansible.builtin.command: >-
+        sh -c 'printf "iscsid=%s nfs=%s iscsi_tcp=%s multipathd=%s"
+        "$(systemctl is-active iscsid)" "$(command -v mount.nfs >/dev/null && echo yes || echo no)"
+        "$(grep -qw iscsi_tcp /proc/modules /lib/modules/$(uname -r)/modules.builtin 2>/dev/null && echo yes || echo no)"
+        "$(systemctl is-active multipathd)"'
+      register: summary
+      changed_when: false
+      check_mode: false
+
+    - name: Result
+      ansible.builtin.debug:
+        msg: "{{ summary.stdout }}"

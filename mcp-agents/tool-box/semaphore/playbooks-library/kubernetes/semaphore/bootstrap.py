@@ -42,6 +42,8 @@ def catalog(inv: str):
              "Pin each node's inventory IP in netplan, one node at a time. Run with --check first."),
             ("K8s: MetalLB", "ansible", f"{LIB}/metallb.yml", [], "Kubernetes", "default",
              "Install/upgrade MetalLB and apply address pools + L2 advertisements. Idempotent."),
+            ("K8s: Longhorn prerequisites", "ansible", f"{LIB}/longhorn-prereqs.yml", [], "Kubernetes", "default",
+             "open-iscsi, nfs-common, cryptsetup and iscsid on every node, for Longhorn. Idempotent; run after adding nodes."),
             ("Kubespray: preflight", "bash", ks, ["preflight"], "Kubespray", f"kubespray-{inv}",
              "SSH, sudo, OS and kubelet version on every node with kubespray's pinned Ansible. Changes nothing."),
             ("Kubespray: deploy / converge", "bash", ks, ["cluster"], "Kubespray", f"kubespray-{inv}",

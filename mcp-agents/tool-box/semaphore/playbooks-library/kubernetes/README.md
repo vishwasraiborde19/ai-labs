@@ -8,7 +8,7 @@ vars) and lists its variables at the top of the file.
 ```
 kubernetes/
 ├── inventories/
-│   └── proxmox01/                 the 6-node Kubernetes cluster on Proxmox
+│   └── proxmox01/                 the Kubernetes cluster on Proxmox (6 nodes + storage node)
 │       ├── hosts.yaml             hosts and groups (kubespray layout)
 │       ├── group_vars/all/        connection.yml (SSH user), metallb.yml, network.yml
 │       ├── kubespray.env          kubespray version + SSH user
@@ -16,6 +16,7 @@ kubernetes/
 │       └── patches/               kubeadm patches (copied along; enable with kubeadm_patches)
 ├── kubespray/kubespray.sh         kubespray runner: pinned version + its own Ansible, live output
 ├── metallb.yml                    MetalLB + address pools + L2 advertisements
+├── longhorn-prereqs.yml           iSCSI / NFS client / cryptsetup on the nodes, for Longhorn
 ├── ping.yml                       SSH / sudo / OS check of every node, changes nothing
 ├── static-ip.yml                  pin each node's IP in netplan, one node at a time
 └── semaphore/bootstrap.py         creates/updates the Semaphore project, inventory and templates
@@ -27,6 +28,7 @@ kubernetes/
 |---|---|---|---|
 | `ping.yml` | Ansible | any inventory | Connectivity, Python, sudo, OS, uptime. First template to run for a new inventory or key. |
 | `static-ip.yml` | Ansible | Ubuntu (netplan) | Turns the current DHCP address into a static netplan config, disables cloud-init networking, applies it detached and waits for the node to return. `serial: 1`. |
+| `longhorn-prereqs.yml` | Ansible | `k8s_cluster` | Installs `open-iscsi`, `nfs-common` and `cryptsetup`, starts `iscsid`, loads `iscsi_tcp` at boot and keeps `multipathd` off Longhorn's disks. Run after adding nodes, before installing Longhorn. |
 | `metallb.yml` | Ansible | first `kube_control_plane` host | Installs/upgrades MetalLB from its native manifest and applies pools and L2 advertisements. Idempotent. |
 | `kubespray/kubespray.sh preflight` | Bash | inventory with kubespray layout | Checks SSH, sudo, OS and kubelet on every node. Changes nothing. |
 | `kubespray/kubespray.sh cluster` | Bash | | `cluster.yml`: deploy, or converge an existing cluster. Idempotent. |
