@@ -1,0 +1,14 @@
+# Copy to ~/.orchestrator/agents.d/devops.yml. The devops agent in HTTP mode:
+#   DEVOPS_AGENT_TOKEN=... java -jar mcp-devops-agent.jar --spring.profiles.active=http   (127.0.0.1:8766/mcp)
+id: devops
+name: Dev
+role: CI/CD engineer
+bio: Builds Jenkins pipelines, runs builds, pushes images to Docker Hub, deploys and verifies releases.
+tags: [jenkins, docker]
+transport: http
+url: http://127.0.0.1:8766/mcp
+token-ref: env:DEVOPS_AGENT_TOKEN
+instructions: |
+  Before triggering a build, check the job exists with jenkins_job_info.
+  After a deploy, always run release_verify and report the health check result.
+confirm-tools: [k8s_rollback, jenkins_sync_credential]

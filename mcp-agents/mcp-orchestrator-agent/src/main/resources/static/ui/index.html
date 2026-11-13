@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Orchestrator</title>
+<link rel="stylesheet" href="/ui/app.css">
+<script src="/ui/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <h1>Agent Orchestrator</h1>
+  <nav class="views" id="views">
+    <button data-view="team" class="on">Team</button>
+    <button data-view="systems">Systems</button>
+    <button data-view="mission">Mission</button>
+    <button data-view="chains">Chains</button>
+    <button data-view="runs">Runs <span class="badge" id="wait-count" hidden></span></button>
+    <button data-view="registry">Registry <span class="badge" id="pending-count" hidden></span></button>
+    <button data-view="settings">Settings</button>
+  </nav>
+  <span class="spacer"></span>
+  <span class="mode" id="mode">Local access, no sign-in</span>
+</header>
+<main id="main" tabindex="-1"></main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<dialog id="dlg"></dialog>
+</body>
+</html>
