@@ -4,6 +4,10 @@ Gives a Kubernetes cluster persistent storage on the lab NAS (an NFS server outs
 [nfs-installer](../../nfs/nfs-installer/)): the [NFS CSI driver](https://github.com/kubernetes-csi/csi-driver-nfs)
 and a **default StorageClass `nfs`**. Each PVC gets its own directory on the NAS, readable by name.
 
+> **Lab status:** `proxmox01` now uses [Longhorn](../longhorn/) with its data on the storage node
+> `nas-server` (192.168.1.13), which no longer runs NFS. This tool stays for NFS shares elsewhere.
+
+
 ```
  pod ── PVC (storageClassName: nfs) ── csi-driver-nfs ──NFS v4.1──▶ 192.168.1.13:/srv/nfs/k8s/<namespace>/<pvc>
 ```

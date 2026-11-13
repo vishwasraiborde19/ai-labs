@@ -17,6 +17,7 @@ DASHBOARDS=(
   "15758:latest:k8s-views-namespaces"     # Kubernetes / Views / Namespaces
   "15759:latest:k8s-views-nodes"          # Kubernetes / Views / Nodes
   "15760:latest:k8s-views-pods"           # Kubernetes / Views / Pods
+  "16888:latest:longhorn"                 # Longhorn: volumes, nodes, disks, backups
 )
 
 [[ -d /etc/grafana/provisioning/dashboards ]] || { echo "Grafana not found (/etc/grafana)"; exit 1; }

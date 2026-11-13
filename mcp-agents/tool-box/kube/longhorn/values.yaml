@@ -1,0 +1,48 @@
+# Longhorn values for the lab: all volume data on the storage node (nas-server, 192.168.1.13), managed
+# from the Longhorn UI. install-longhorn.sh sets the UI address; nothing here is secret.
+#
+#   pod on any worker ── Longhorn engine (same node) ──network──▶ replica on nas-server:/var/lib/longhorn
+#
+# Only nodes labelled node.longhorn.io/create-default-disk=true get a disk (the inventory labels
+# nas-server), so replicas can only land there. One replica per volume by default: nas-server is a single
+# point of failure, like any single NAS. Raise numberOfReplicas per volume in the UI once more nodes have
+# Longhorn disks.
+
+defaultSettings:
+  createDefaultDiskLabeledNodes: true
+  defaultDataPath: /var/lib/longhorn/
+  defaultReplicaCount: 1
+  replicaSoftAntiAffinity: true            # allow 2+ replicas on one node if a volume asks for more
+  storageMinimalAvailablePercentage: 10    # stop scheduling new replicas below 10 % free
+  storageOverProvisioningPercentage: 100   # volumes may add up to 2x the disk (thin provisioned)
+  # nas-server is tainted so apps stay off it; Longhorn's own components must run there.
+  taintToleration: "node-role.kubernetes.io/storage=true:NoSchedule"
+  nodeDownPodDeletionPolicy: delete-both-statefulset-and-deployment-pod   # faster recovery when a node dies
+  deletingConfirmationFlag: false
+
+# The manager DaemonSet is not "system-managed": it needs the toleration itself.
+longhornManager:
+  tolerations:
+    - {key: node-role.kubernetes.io/storage, operator: Equal, value: "true", effect: NoSchedule}
+
+persistence:
+  defaultClass: true                 # PVCs without storageClassName get Longhorn
+  defaultClassReplicaCount: 1
+  defaultFsType: ext4
+  # Deleting a PVC keeps the volume (and its data): delete it in the UI when you are sure.
+  reclaimPolicy: Retain
+  volumeBindingMode: Immediate
+  defaultDataLocality: disabled
+
+service:
+  ui:
+    type: LoadBalancer               # MetalLB; install-longhorn.sh pins the IP and limits who can reach it
+    annotations: {}
+
+longhornUI:
+  replicas: 1
+
+# Volume, node and disk metrics to the in-cluster Prometheus, and from there to the central Grafana.
+metrics:
+  serviceMonitor:
+    enabled: true

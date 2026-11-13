@@ -1,4 +1,4 @@
-# proxmox01: 3 control-plane/etcd nodes + 3 workers (Ubuntu 22.04 on Proxmox).
+# proxmox01: 3 control-plane/etcd nodes + 3 workers + 1 storage node (Ubuntu 22.04 on Proxmox).
 # Used by kubespray/kubespray.sh and by the Ansible playbooks of this library (Semaphore "file" inventory).
 all:
   hosts:
@@ -8,6 +8,17 @@ all:
     kube-node-001: {ansible_host: 192.168.1.104, ip: 192.168.1.104, access_ip: 192.168.1.104}
     kube-node-002: {ansible_host: 192.168.1.198, ip: 192.168.1.198, access_ip: 192.168.1.198}
     kube-node-003: {ansible_host: 192.168.1.142, ip: 192.168.1.142, access_ip: 192.168.1.142}
+    # Storage-only node: holds Longhorn's data on its own disk (/var/lib/longhorn). The taint keeps
+    # workloads off it; Longhorn tolerates it (tool-box/kube/longhorn). Added with kubespray scale.
+    nas-server:
+      ansible_host: 192.168.1.13
+      ip: 192.168.1.13
+      access_ip: 192.168.1.13
+      node_labels:
+        node.longhorn.io/create-default-disk: "true"
+        node-role.kubernetes.io/storage: ""
+      node_taints:
+        - "node-role.kubernetes.io/storage=true:NoSchedule"
   children:
     kube_control_plane:
       hosts:
@@ -22,6 +33,7 @@ all:
         kube-node-001:
         kube-node-002:
         kube-node-003:
+        nas-server:
     etcd:
       hosts:
         control-panel-001:

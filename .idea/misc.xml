@@ -7,6 +7,7 @@
         <option value="$PROJECT_DIR$/mcp-agents/mcp-devops-agent/pom.xml" />
         <option value="$PROJECT_DIR$/mcp-agents/mcp-kube-agent/pom.xml" />
         <option value="$PROJECT_DIR$/mcp-agents/mcp-orchestrator-agent/pom.xml" />
+        <option value="$PROJECT_DIR$/command-center/pom.xml" />
       </list>
     </option>
   </component>

@@ -64,6 +64,7 @@ the folder **Kubernetes** (read-only in the UI; re-run to refresh):
 | Kubernetes / Views / Nodes | 15759 | per node: pods, resources, conditions |
 | Kubernetes / Views / Pods | 15760 | per pod / container: CPU, memory, restarts, network |
 | Node Exporter Full | 1860 | per machine: everything node-exporter reports |
+| Longhorn Monitoring & Backups | 16888 | Longhorn volumes, space per node and disk, backups (see [longhorn](../longhorn/)) |
 
 Useful queries in *Explore*:
 

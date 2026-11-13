@@ -4,6 +4,10 @@ One script that turns a fresh Ubuntu 22.04 VM into the lab's NAS: an NFS server 
 shares pods mount (through [kube/nfs-storage](../../kube/nfs-storage/)) and other VMs can mount too.
 The data lives on this VM, so it survives rebuilding or deleting a cluster.
 
+> **Lab status:** `proxmox01` now uses [Longhorn](../../kube/longhorn/) with its data on the storage node
+> `nas-server` (192.168.1.13), which no longer runs NFS. This tool stays for NFS shares elsewhere.
+
+
 ```
  NAS VM (192.168.1.13)                                   Kubernetes nodes / VMs
  /srv/nfs/k8s     one directory per PVC  ──NFS v4.1──▶   csi-driver-nfs ─▶ pod /data
