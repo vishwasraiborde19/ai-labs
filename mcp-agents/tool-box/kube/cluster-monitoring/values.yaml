@@ -1,0 +1,98 @@
+# kube-prometheus-stack values for the lab clusters: collect in the cluster, keep nothing for long here,
+# and push to the lab's central Prometheus (observability VM), which Grafana reads.
+#
+#   node-exporter (DaemonSet, every node) ─┐
+#   kube-state-metrics (Deployment)        ├─▶ Prometheus (1 replica, 1 day, emptyDir) ──remote_write──▶ central Prometheus ◀── Grafana
+#   kubelet / cAdvisor, CoreDNS, apiserver ─┘        cluster=<name> on every series
+#
+# install-monitoring.sh fills in the cluster name and remote-write URL (--set), so this file holds no
+# per-cluster or secret values.
+
+crds:
+  enabled: true
+
+# The central Grafana and its dashboards are used instead.
+grafana:
+  enabled: false
+  forceDeployDashboards: false
+alertmanager:
+  enabled: false
+
+# Bound to 127.0.0.1 by kubespray: scraping them would only produce failing targets. See README
+# ("Control-plane metrics") to open them up, then enable these.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeEtcd:
+  enabled: false
+
+defaultRules:
+  create: true
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeProxy: false
+    alertmanager: false
+
+prometheus-node-exporter:
+  # hostNetwork on :9100 and tolerates every taint by default, so it runs on control-plane nodes too.
+  resources:
+    requests: {cpu: 20m, memory: 32Mi}
+    limits: {memory: 96Mi}
+
+kube-state-metrics:
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+prometheusOperator:
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+prometheus:
+  prometheusSpec:
+    replicas: 1
+    retention: 1d            # the central Prometheus keeps the history
+    retentionSize: 2GB
+    # No StorageClass in the cluster: data is on emptyDir. A restart loses at most what was not yet sent.
+    storageSpec: {}
+    resources:
+      requests: {cpu: 200m, memory: 768Mi}
+      limits: {memory: 2Gi}
+    # Prefer worker nodes (control-plane nodes have 4 GiB).
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: DoesNotExist
+    # Pick up ServiceMonitors / PodMonitors / rules from any namespace and release, so apps can add
+    # their own scrape targets.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
+    externalLabels:
+      cluster: CHANGEME      # set by install-monitoring.sh (CLUSTER_NAME)
+    remoteWrite:
+      - name: central
+        url: http://CHANGEME/api/v1/write   # set by install-monitoring.sh (REMOTE_WRITE_URL)
+        queueConfig:
+          maxSamplesPerSend: 2000
+          capacity: 10000
+          maxShards: 10
+        # Send what the dashboards use, not every series: the central Prometheus is small.
+        # Recording-rule results (names with ':') are computed here and always sent.
+        writeRelabelConfigs:
+          - sourceLabels: [__name__]
+            regex: '.+_bucket|apiserver_.+|etcd_.+|workqueue_.+|rest_client_.+|storage_operation_.+|aggregator_.+|authentication_.+|authorization_.+|apiextensions_.+|apiserver_flowcontrol_.+|kubelet_runtime_operations_.+|kubelet_pod_worker_.+|kubelet_cgroup_manager_.+|kubelet_pleg_relist_.+|csi_operations_.+|go_.+|process_.+|promhttp_.+|prometheus_.+|scrape_samples_.+|scrape_series_added|container_tasks_state|container_memory_failures_total|container_blkio_device_usage_total|node_scrape_collector_.+'
+            action: drop
