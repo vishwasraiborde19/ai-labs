@@ -1,0 +1,218 @@
+---
+# Harbor container registry on an Ubuntu VM, plain HTTP (the lab has no internal CA):
+# Docker Engine + compose plugin from Docker's apt repository, Harbor's online installer (pinned version,
+# sha256-checked), harbor.yml rendered from the installer's own template, then install.sh.
+# Idempotent: re-running with the same settings changes nothing; changed settings re-run install.sh
+# (Harbor is down for about a minute; images and the database in harbor_data_volume are kept).
+#
+# Vars (inventory group_vars/all/harbor.yml, or extra vars):
+#   target                    host pattern, default harbor
+#   harbor_version            v2.15.5
+#   harbor_installer_sha256   sha256 of harbor-online-installer-<version>.tgz (required)
+#   harbor_hostname           default: the host's ansible_host. Must be the address clients use: Harbor puts
+#                             it in the login (token realm) and in the portal's push commands
+#   harbor_http_port          80
+#   harbor_data_volume        /data (images, database, job logs; put it on a big disk)
+#   harbor_with_trivy         true (vulnerability scanning)
+#
+# Secrets are generated on the VM on first run and never leave it:
+#   /root/harbor/admin-password   initial password of user "admin" (only used by the first install;
+#                                 later changes are made in the portal)
+#   /root/harbor/db-password      internal PostgreSQL password
+#
+# Upgrades between Harbor versions need Harbor's migration steps and a backup: this playbook refuses to
+# install a different version over an existing one.
+- name: Harbor
+  hosts: "{{ target | default('harbor') }}"
+  become: true
+  gather_facts: true
+  vars:
+    version: "{{ harbor_version | default('v2.15.5') }}"
+    hostname: "{{ harbor_hostname | default(ansible_host) }}"
+    http_port: "{{ harbor_http_port | default(80) | int }}"
+    data_volume: "{{ harbor_data_volume | default('/data') }}"
+    with_trivy: "{{ harbor_with_trivy | default(true) | bool }}"
+    install_dir: /opt/harbor
+    installer_url: "https://github.com/goharbor/harbor/releases/download/{{ version }}/harbor-online-installer-{{ version }}.tgz"
+  tasks:
+    - name: Check host and vars
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Ubuntu'
+          - harbor_installer_sha256 is defined and harbor_installer_sha256 | length == 64
+          - hostname is match('^[A-Za-z0-9.-]+$')
+        fail_msg: Ubuntu only; set harbor_installer_sha256 (64 hex chars) and a plain harbor_hostname
+
+    # ------------------------------------------------------------------ Docker Engine
+    - name: Distro Docker packages are absent (they conflict with docker-ce)
+      ansible.builtin.apt:
+        name: [docker.io, docker-compose, docker-compose-v2, podman-docker, containerd, runc]
+        state: absent
+
+    - name: apt keyrings directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Docker apt key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+        force: false
+
+    - name: Docker apt repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/docker.list
+        content: >
+          deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }} signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+        mode: "0644"
+
+    - name: Docker Engine and compose plugin
+      ansible.builtin.apt:
+        name: [docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin, docker-compose-plugin]
+        state: present
+        update_cache: true
+
+    - name: Docker running and enabled
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    # ------------------------------------------------------------------ installer (pinned, checked)
+    - name: Installed Harbor version
+      ansible.builtin.slurp:
+        src: "{{ install_dir }}/.ai-labs-version"
+      register: installed
+      failed_when: false
+
+    - name: Refuse to replace another Harbor version
+      ansible.builtin.assert:
+        that: installed.content is not defined or (installed.content | b64decode | trim) == version
+        fail_msg: >-
+          {{ install_dir }} has Harbor {{ installed.content | default('') | b64decode | trim }}, this run wants {{ version }}.
+          Upgrade by hand (backup {{ data_volume }}, Harbor's migration steps), then update .ai-labs-version.
+
+    - name: Directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        mode: "{{ item.mode }}"
+      loop:
+        - {path: /opt/harbor-installers, mode: "0755"}
+        - {path: "{{ install_dir }}", mode: "0755"}
+        - {path: "{{ data_volume }}", mode: "0755"}
+        - {path: /root/harbor, mode: "0700"}
+
+    - name: Download the online installer
+      ansible.builtin.get_url:
+        url: "{{ installer_url }}"
+        dest: "/opt/harbor-installers/harbor-online-installer-{{ version }}.tgz"
+        checksum: "sha256:{{ harbor_installer_sha256 }}"
+        mode: "0644"
+
+    - name: Unpack the installer
+      ansible.builtin.unarchive:
+        src: "/opt/harbor-installers/harbor-online-installer-{{ version }}.tgz"
+        dest: "{{ install_dir }}"
+        remote_src: true
+        extra_opts: [--strip-components=1]          # the tarball's top folder is harbor/
+        creates: "{{ install_dir }}/install.sh"
+
+    # ------------------------------------------------------------------ secrets (generated once, stay on the VM)
+    - name: Generate passwords once
+      ansible.builtin.shell: |
+        set -e
+        umask 077
+        openssl rand -base64 30 | tr -d '/+=' | cut -c1-24 > {{ item }}
+      args:
+        creates: "{{ item }}"
+      loop: [/root/harbor/admin-password, /root/harbor/db-password]
+
+    - name: Read passwords
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop: [/root/harbor/admin-password, /root/harbor/db-password]
+      register: pw
+      no_log: true
+
+    # ------------------------------------------------------------------ harbor.yml from the installer's template
+    - name: Read harbor.yml.tmpl
+      ansible.builtin.slurp:
+        src: "{{ install_dir }}/harbor.yml.tmpl"
+      register: tmpl
+
+    - name: Write harbor.yml (plain HTTP, no https section)
+      ansible.builtin.copy:
+        dest: "{{ install_dir }}/harbor.yml"
+        mode: "0600"
+        content: |
+          # Managed by ai-labs semaphore/playbooks-library/registry/harbor.yml. Edit the inventory, not this file.
+          {{ ((tmpl.content | b64decode | from_yaml) | combine(overrides, recursive=true)
+              | dict2items | rejectattr('key', 'equalto', 'https') | items2dict) | to_nice_yaml(indent=2) }}
+      vars:
+        overrides:
+          hostname: "{{ hostname }}"
+          http: "{{ {'port': http_port | int} }}"     # a dict expression keeps port an int ('80' would add :80 to URLs)
+          harbor_admin_password: "{{ pw.results[0].content | b64decode | trim }}"
+          database: {password: "{{ pw.results[1].content | b64decode | trim }}"}
+          data_volume: "{{ data_volume }}"
+      register: config
+      no_log: true
+
+    - name: Is Harbor running
+      ansible.builtin.command: docker compose -f {{ install_dir }}/docker-compose.yml ps --status running -q
+      register: running
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    # ------------------------------------------------------------------ install / reconfigure
+    - name: install.sh (prepare, pull images, start)
+      ansible.builtin.command:
+        cmd: "./install.sh{{ ' --with-trivy' if with_trivy else '' }}"
+        chdir: "{{ install_dir }}"
+      when: config is changed or (running.stdout_lines | default([]) | length) < 8
+      register: install
+      changed_when: true
+
+    - name: Record the installed version
+      ansible.builtin.copy:
+        dest: "{{ install_dir }}/.ai-labs-version"
+        content: "{{ version }}\n"
+        mode: "0644"
+
+    # ------------------------------------------------------------------ checks
+    - name: Wait until every component is healthy
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ http_port }}/api/v2.0/health"
+        return_content: true
+      register: health
+      until: >-
+        health.status | default(0) == 200 and health.json is defined and
+        (health.json.components | rejectattr('status', 'equalto', 'healthy') | list | length) == 0
+      retries: 30
+      delay: 10
+      check_mode: false
+
+    - name: Login challenge points at harbor_hostname
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ http_port }}/v2/"
+        status_code: 401
+      register: v2
+      failed_when: >-
+        v2.status != 401 or
+        ('realm="http://' ~ hostname ~ (':' ~ http_port if http_port | int != 80 else '') ~ '/service/token"') not in (v2.www_authenticate | default(''))
+      check_mode: false
+
+    - name: Result
+      ansible.builtin.debug:
+        msg:
+          - "Harbor {{ version }} at http://{{ hostname }}{{ ':' ~ http_port if http_port | int != 80 else '' }}/  (install.sh ran: {{ install is changed }})"
+          - "components: {{ health.json.components | map(attribute='name') | join(', ') }} = healthy"
+          - "login challenge: {{ v2.www_authenticate }}"
+          - "admin password: sudo cat /root/harbor/admin-password on {{ inventory_hostname }} (first login, then change it)"
+          - "clients: add {{ hostname }} to Docker insecure-registries (tool-box/harbour/runbook.md section 2)"

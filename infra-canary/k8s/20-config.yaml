@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: infra-canary
+  namespace: infra-canary
+data:
+  # Spring Boot writes and rotates the file on the Longhorn volume; console logging stays on.
+  logging.file.name: "/app/logs/canary/infra-canary.log"
+  logging.logback.rollingpolicy.max-file-size: "5MB"
+  logging.logback.rollingpolicy.max-history: "3"
+  logging.logback.rollingpolicy.total-size-cap: "500MB"
+  heartbeat.interval: "30s"
+  # GET /canary also calls these (NAME=URL, comma separated) and expects 2xx.
+  canary.http-targets: >-
+    harbor=http://192.168.1.34/api/v2.0/health,
+    prometheus=http://192.168.1.137:9090/-/healthy,
+    grafana=http://192.168.1.137:3000/api/health

@@ -1,0 +1,15 @@
+# Log volume: Longhorn (default StorageClass), replica on nas-server. Small on purpose: POST /burst fills
+# it quickly enough to watch rotation. reclaimPolicy Retain: deleting the PVC keeps the volume (Longhorn UI).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: infra-canary-logs
+  namespace: infra-canary
+  labels:
+    app: infra-canary
+spec:
+  storageClassName: longhorn
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi

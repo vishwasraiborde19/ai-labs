@@ -1,0 +1,3 @@
+# Same as the Kubernetes inventory: the runner's default SSH key (on the Semaphore server
+# /var/lib/semaphore/.ssh/id_ed25519) logs in as this user, who has passwordless sudo.
+ansible_user: vishwas

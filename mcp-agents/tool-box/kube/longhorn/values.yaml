@@ -46,3 +46,13 @@ longhornUI:
 metrics:
   serviceMonitor:
     enabled: true
+
+# The chart restricts traffic to longhorn-manager (networkPolicies.restrictInternalTraffic, on by default)
+# to Longhorn's own pods. Its :9500 serves both /metrics and the manager API, so let in only the
+# cluster-monitoring Prometheus pod; without this every scrape times out (TargetDown on longhorn-backend).
+networkPolicies:
+  metricsScrapeSources:
+    - namespaceSelector:
+        matchLabels: {kubernetes.io/metadata.name: monitoring}
+      podSelector:
+        matchLabels: {app.kubernetes.io/name: prometheus}
