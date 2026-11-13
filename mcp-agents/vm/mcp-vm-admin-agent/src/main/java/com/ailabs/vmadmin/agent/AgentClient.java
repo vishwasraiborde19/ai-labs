@@ -323,7 +323,7 @@ public class AgentClient {
         return s == null ? "" : s;
     }
 
-    static SSLContext trusting(String pemFile) {
+    public static SSLContext trusting(String pemFile) {
         try {
             byte[] pem = Files.readAllBytes(Path.of(pemFile));
             KeyStore ks = KeyStore.getInstance(KeyStore.getDefaultType());

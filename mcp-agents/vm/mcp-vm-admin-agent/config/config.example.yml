@@ -31,6 +31,17 @@ vmadmin:
   #   - name: Disk usage
   #     command: df -h
 
+  # Optional: Proxmox VE cluster the VMs run on (Hypervisor view, MCP pve_overview / pve_vms).
+  # Token: pveum user token add vmadmin@pve control-centre --privsep 0  (user needs PVEAuditor on /)
+  # proxmox:
+  #   endpoints:                      # any cluster nodes; the first that answers is used
+  #     - https://192.168.1.30:8006
+  #     - https://192.168.1.40:8006
+  #   token-ref: path:~/.vm-admin/proxmox.token   # file holds  vmadmin@pve!control-centre=<secret>
+  #   insecure-skip-tls-verify: true   # Proxmox's own cert is self-signed; or:
+  #   # ca-cert-ref: path:~/.vm-admin/pve-root-ca.pem   (copy of /etc/pve/pve-root-ca.pem)
+  #   ip-cache-ttl: 2m                 # guest IP lookups (one API call per guest)
+
   # History for the Overview charts
   metrics:
     interval: 5m

@@ -10,6 +10,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 
 import com.ailabs.vmadmin.mcp.FleetTools;
+import com.ailabs.vmadmin.mcp.ProxmoxTools;
 
 /**
  * mcp-vm-admin-agent: control centre for VMs running mcp-vm-worker-agent.
@@ -24,8 +25,8 @@ public class VmAdminApplication {
     }
 
     @Bean
-    ToolCallbackProvider fleetToolCallbacks(FleetTools tools) {
-        return MethodToolCallbackProvider.builder().toolObjects(tools).build();
+    ToolCallbackProvider fleetToolCallbacks(FleetTools tools, ProxmoxTools pveTools) {
+        return MethodToolCallbackProvider.builder().toolObjects(tools, pveTools).build();
     }
 
     @Controller
