@@ -12,6 +12,8 @@ RELEASE=${RELEASE:-longhorn}
 STORAGE_NODE=${STORAGE_NODE:-nas-server}        # node holding the data (labelled create-default-disk)
 UI_IP=${UI_IP:-192.168.1.240}                   # from the MetalLB pool; empty = any free address
 UI_ALLOW=${UI_ALLOW:-192.168.1.0/24}            # who may open the UI (it has no login); space-separated CIDRs
+WAIT_FOR_NODE=${WAIT_FOR_NODE:-1}               # 0: install before the storage node joins (UI only, no disk
+                                                #    yet; Longhorn adds the disk when the node arrives)
 KUBE_CONTEXT=${KUBE_CONTEXT:-}
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
@@ -89,8 +91,8 @@ EOF
 if [[ $MODE == test ]]; then smoke_test; exit 0; fi
 
 log "Storage node $STORAGE_NODE"
-# In a dry run, report node problems instead of stopping.
-[[ $MODE == dry-run ]] && die() { printf 'WARNING: %s\n' "$*" >&2; }
+# In a dry run, or when installing ahead of the node, report node problems instead of stopping.
+[[ $MODE == dry-run || $WAIT_FOR_NODE == 0 ]] && die() { printf 'WARNING: %s\n' "$*" >&2; }
 k get node "$STORAGE_NODE" >/dev/null 2>&1 || die "node $STORAGE_NODE is not in the cluster yet: add it with kubespray scale (see README)"
 [[ $(k get node "$STORAGE_NODE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}') == True ]] \
   || die "node $STORAGE_NODE is not Ready"
@@ -126,6 +128,11 @@ done
 k -n "$NAMESPACE" rollout status ds/longhorn-csi-plugin --timeout 10m >/dev/null
 echo "manager, driver and CSI components running"
 
+if [[ $WAIT_FOR_NODE == 0 ]] && ! k get node "$STORAGE_NODE" >/dev/null 2>&1; then
+  log "Skipping the disk check and write test: $STORAGE_NODE has not joined yet"
+  SKIP_DISK=1
+fi
+[[ ${SKIP_DISK:-0} == 1 ]] || {
 log "Disk on $STORAGE_NODE"
 for _ in $(seq 1 60); do
   ok=$(k -n "$NAMESPACE" get nodes.longhorn.io "$STORAGE_NODE" -o jsonpath='{range .status.diskStatus.*}{.conditions[?(@.type=="Schedulable")].status}{end}' 2>/dev/null || true)
@@ -135,6 +142,7 @@ done
 k -n "$NAMESPACE" get nodes.longhorn.io
 k -n "$NAMESPACE" get nodes.longhorn.io -o jsonpath='{range .items[*]}{.metadata.name}{": "}{range .status.conditions[?(@.status=="False")]}{.type}={.message}{"; "}{end}{"\n"}{end}' \
   | grep -v ': $' | sed 's/^/  not ready: /' || true
+}
 
 log "UI access limited to: $UI_ALLOW"
 ranges=$(printf '"%s",' $UI_ALLOW); ranges="[${ranges%,}]"
@@ -147,5 +155,5 @@ done
 
 k get sc
 
-smoke_test
+[[ ${SKIP_DISK:-0} == 1 ]] || smoke_test
 log "Done. Longhorn UI: http://${ip:-<pending>}/   (no login: reachable only from $UI_ALLOW)"

@@ -54,6 +54,7 @@ Both are set in the inventory ([hosts.yaml](../../semaphore/playbooks-library/ku
 | `UI_IP` | `192.168.1.240` | MetalLB address for the UI; empty = any free one |
 | `UI_ALLOW` | `192.168.1.0/24` | CIDRs that may open the UI (`loadBalancerSourceRanges`). **The UI has no login**: narrow it to your admin machines |
 | `CHART_VERSION` | `1.12.2` | |
+| `WAIT_FOR_NODE` | `1` | `0` installs before the storage node joins: the UI works, volumes cannot be created until the node (and its disk) arrives |
 
 ## Using it
 
