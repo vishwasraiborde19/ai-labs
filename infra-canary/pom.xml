@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.4.1</version>
+        <relativePath/>
+    </parent>
+    <groupId>com.ailabs</groupId>
+    <artifactId>infra-canary</artifactId>
+    <version>0.1.0</version>
+    <name>infra-canary</name>
+    <description>Canary app: proves build, Harbor, Kubernetes, Longhorn and logging work end to end</description>
+
+    <properties>
+        <java.version>17</java.version>
+        <!-- Harbor (plain HTTP). Override with -Dimage.registry=... / -Dimage.project=... -->
+        <image.registry>192.168.1.34</image.registry>
+        <image.project>infracanary</image.project>
+        <jib.version>3.4.4</jib.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <execution><goals><goal>build-info</goal></goals></execution>
+                </executions>
+            </plugin>
+            <!-- Builds and pushes the image without Docker (mvn compile jib:build); the Dockerfile is the Docker way -->
+            <plugin>
+                <groupId>com.google.cloud.tools</groupId>
+                <artifactId>jib-maven-plugin</artifactId>
+                <version>${jib.version}</version>
+                <configuration>
+                    <from><image>eclipse-temurin:17-jre</image></from>
+                    <to>
+                        <image>${image.registry}/${image.project}/${project.artifactId}</image>
+                        <tags><tag>${project.version}</tag><tag>latest</tag></tags>
+                    </to>
+                    <allowInsecureRegistries>true</allowInsecureRegistries>
+                    <container>
+                        <ports><port>8080</port></ports>
+                        <creationTime>USE_CURRENT_TIMESTAMP</creationTime>
+                        <!-- same as the Dockerfile: non-root uid/gid 10001, logs under /app/logs/canary -->
+                        <user>10001:10001</user>
+                        <workingDirectory>/app</workingDirectory>
+                        <environment><LOGGING_FILE_NAME>/app/logs/canary/infra-canary.log</LOGGING_FILE_NAME></environment>
+                        <jvmFlags><jvmFlag>-XX:MaxRAMPercentage=75</jvmFlag></jvmFlags>
+                    </container>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

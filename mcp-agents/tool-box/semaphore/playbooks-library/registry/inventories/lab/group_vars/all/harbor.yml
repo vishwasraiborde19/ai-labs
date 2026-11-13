@@ -1,0 +1,6 @@
+# harbor.yml playbook settings (see the header of ../../../harbor.yml for all of them).
+harbor_version: v2.15.5
+# sha256 of harbor-online-installer-<version>.tgz, from the GitHub release's asset digest. Change with the version.
+harbor_installer_sha256: 6b3aa89c868d975549be7dad7238bf1f674fc248711a0913b42d65832f589b7d
+harbor_data_volume: /data
+harbor_with_trivy: true

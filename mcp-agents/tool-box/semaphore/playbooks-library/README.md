@@ -5,6 +5,7 @@ Reusable playbooks and scripts for [Semaphore UI](../semaphore-installer/), one 
 | Folder | What's in it |
 |---|---|
 | [kubernetes/](kubernetes/) | kubespray runner (deploy, scale, upgrade, reset) with a pinned version and its own Ansible, MetalLB, node static IPs, node checks, the `proxmox01` inventory, and `bootstrap.py` that sets it all up in Semaphore. |
+| [registry/](registry/) | Harbor container registry on its own VM (Docker Engine, pinned online installer, plain HTTP, health and hostname checks), with its `lab` inventory. |
 
 ## Adding a topic
 

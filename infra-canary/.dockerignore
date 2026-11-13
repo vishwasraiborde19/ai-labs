@@ -1,0 +1,8 @@
+# Only the built jar goes into the build context
+target/*
+!target/infra-canary-*.jar
+k8s/
+src/
+*.md
+.git
+.idea
