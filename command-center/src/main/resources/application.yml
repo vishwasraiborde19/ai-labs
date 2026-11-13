@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: command-center
+  main:
+    banner-mode: "off"
+  threads:
+    virtual:
+      enabled: true
+  config:
+    import: optional:file:${COMMAND_CENTER_CONFIG:${user.home}/.command-center/config.yml}
+  mvc:
+    formcontent:
+      filter:
+        enabled: false
+
+server:
+  address: ${COMMAND_CENTER_HOST:127.0.0.1}
+  port: ${COMMAND_CENTER_PORT:8780}
+  servlet:
+    session:
+      tracking-modes: []
+
+logging:
+  level:
+    root: INFO

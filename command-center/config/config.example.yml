@@ -1,0 +1,20 @@
+# ~/.command-center/config.yml (or $COMMAND_CENTER_CONFIG). Systems are not configured here: they live in
+# ~/.command-center/catalog.yml, edited from the UI.
+commandcenter:
+  ui:
+    edit-from-loopback-only: true   # when listening on the LAN, other machines can browse but not edit
+
+  health:
+    interval: 60s          # probe every system this often
+    timeout: 5s
+    cert-warn-days: 21     # flag TLS certificates expiring sooner
+
+  orchestrator:
+    url: http://127.0.0.1:8770   # mcp-orchestrator-agent; its API answers clients on its own machine only
+    auto-sync: true              # import its agent registry in the background
+    interval: 5m
+
+# Listen address (defaults 127.0.0.1:8780). Use 0.0.0.0 to let the team browse read-only.
+# server:
+#   address: 0.0.0.0
+#   port: 8780

@@ -1,0 +1,320 @@
+# The lab as known when the command center was built. Copied to ~/.command-center/catalog.yml on
+# first start; after that the file in your home directory is the catalog.
+systems:
+  # ---------------------------------------------------------------- identity & access
+  - id: keycloak
+    name: Keycloak
+    kind: keycloak
+    environment: lab
+    description: Single sign-on for the lab, realm "lab".
+    tags: [sso, oidc]
+    links:
+      - {label: Admin console, url: "https://192.168.1.143:8443/admin/", type: ui}
+      - {label: Account console (realm lab), url: "https://192.168.1.143:8443/realms/lab/account", type: ui}
+      - {label: OIDC discovery, url: "https://192.168.1.143:8443/realms/lab/.well-known/openid-configuration", type: api}
+    healthUrl: "https://192.168.1.143:8443/realms/lab"
+    insecureTls: true
+    access:
+      method: local
+      username: admin (realm administrators only)
+      credentialRef: "Password manager: Lab / Keycloak admin"
+      howTo: Developers use their own account in realm "lab"; ask an admin to create it and add you to groups.
+    source: seed
+
+  # ---------------------------------------------------------------- build & delivery
+  - id: github
+    name: GitHub – ai-labs
+    kind: git
+    environment: lab
+    description: Source of the agents, installers and playbooks.
+    links:
+      - {label: Repository, url: "https://github.com/vishwasraiborde19/ai-labs", type: repo}
+    access: {method: local, howTo: Your GitHub account; ask for collaborator access.}
+    source: seed
+
+  - id: jenkins
+    name: Jenkins
+    kind: jenkins
+    environment: lab
+    description: CI/CD pipelines used by the devops agent. Add its URL when it is installed.
+    dependsOn:
+      - {to: github, label: builds on push}
+      - {to: harbor, label: pushes images}
+      - {to: kubernetes, label: deploys}
+    access: {method: token, howTo: The devops agent reads Jenkins credentials from its access server.}
+    source: seed
+
+  - id: harbor
+    name: Harbor
+    kind: harbor
+    environment: lab
+    description: Private container registry. Add its URL when it is installed.
+    dependsOn:
+      - {to: keycloak, label: OIDC login}
+    access: {method: sso, username: your Keycloak account, howTo: "CI uses robot accounts; ask for a project robot."}
+    source: seed
+
+  - id: semaphore
+    name: Semaphore UI
+    kind: semaphore
+    environment: lab
+    description: Runs the kubespray and VM playbooks from the playbooks-library.
+    links:
+      - {label: Semaphore, url: "http://192.168.1.42:3000", type: ui}
+    dependsOn:
+      - {to: keycloak, label: SSO login}
+      - {to: github, label: playbooks repository}
+      - {to: kubernetes, label: installs and upgrades (kubespray)}
+    access:
+      method: sso
+      username: your Keycloak account
+      credentialRef: "Password manager: Lab / Semaphore admin"
+    source: seed
+
+  # ---------------------------------------------------------------- runtime platform
+  - id: kubernetes
+    name: Kubernetes – proxmox01
+    kind: kubernetes
+    environment: lab
+    description: 3 control-plane + 3 worker nodes (Ubuntu 22.04 VMs on Proxmox), MetalLB pool 192.168.1.230-250.
+    tags: [kubespray, metallb]
+    links:
+      - {label: API server, url: "https://192.168.1.20:6443", type: api}
+    insecureTls: true
+    dependsOn:
+      - {to: harbor, label: pulls images}
+      - {to: spring-config-server, label: apps load configuration}
+      - {to: otel-collector, label: sends telemetry (OTLP)}
+      - {to: keycloak, label: kubectl login (OIDC)}
+      - {to: proxmox, label: nodes are VMs}
+    access:
+      method: sso
+      username: your Keycloak account (kubelogin)
+      credentialRef: "Password manager: Lab / kubeconfig proxmox01"
+      howTo: Ask for a namespace; you get a kubeconfig that logs in through Keycloak.
+    source: seed
+
+  - id: spring-config-server
+    name: Spring Cloud Config Server
+    kind: spring-config-server
+    environment: lab
+    description: Central configuration for the Spring Boot services. Add its URL when it is installed.
+    dependsOn:
+      - {to: github, label: reads the config repository}
+    access: {method: none, howTo: Read-only for services; change values through pull requests to the config repo.}
+    source: seed
+
+  # ---------------------------------------------------------------- observability
+  - id: otel-collector
+    name: OpenTelemetry Collector
+    kind: otel-collector
+    environment: lab
+    description: OTLP in (gRPC 4317, HTTP 4318); metrics to Prometheus. Traces and logs are logged only until Tempo/Loki are added.
+    links:
+      - {label: OTLP HTTP, url: "http://192.168.1.137:4318", type: api}
+      - {label: Health check, url: "http://192.168.1.137:13133/", type: health}
+    dependsOn:
+      - {to: prometheus, label: forwards metrics (OTLP)}
+    access: {method: none, howTo: "No auth on the LAN: set OTEL_EXPORTER_OTLP_ENDPOINT=http://192.168.1.137:4318."}
+    source: seed
+
+  - id: prometheus
+    name: Prometheus
+    kind: prometheus
+    environment: lab
+    description: Metrics store, 30-day retention; scrapes node_exporter, the collector and Grafana.
+    links:
+      - {label: Prometheus, url: "http://192.168.1.137:9090", type: ui}
+      - {label: node_exporter, url: "http://192.168.1.137:9100/metrics", type: metrics}
+    access: {method: none, howTo: No auth on the LAN.}
+    source: seed
+
+  - id: grafana
+    name: Grafana
+    kind: grafana
+    environment: lab
+    description: Dashboards and alerting. Prometheus is the default data source.
+    links:
+      - {label: Grafana, url: "http://192.168.1.137:3000", type: ui}
+    dependsOn:
+      - {to: prometheus, label: queries metrics}
+      - {to: keycloak, label: SSO login (optional)}
+    access:
+      method: local
+      username: admin
+      credentialRef: "Password manager: Lab / Grafana admin"
+    source: seed
+
+  # ---------------------------------------------------------------- infrastructure
+  - id: proxmox
+    name: Proxmox VE cluster
+    kind: proxmox
+    environment: lab
+    description: Two-node hypervisor cluster running every lab VM.
+    links:
+      - {label: pve node .30, url: "https://192.168.1.30:8006", type: ui}
+      - {label: pve node .40, url: "https://192.168.1.40:8006", type: ui}
+    healthUrl: "https://192.168.1.30:8006/api2/json/version"
+    insecureTls: true
+    access:
+      method: local
+      username: root@pam (admins) / vmadmin@pve token (control centre)
+      credentialRef: "Password manager: Lab / Proxmox"
+    source: seed
+
+  - id: vm-control-centre
+    name: VM control centre
+    kind: vm-control-centre
+    environment: lab
+    description: mcp-vm-admin-agent on this machine. Fleet, terminal, files, services, and the Proxmox view.
+    links:
+      - {label: Control centre, url: "http://127.0.0.1:8767/ui", type: ui}
+      - {label: MCP endpoint, url: "http://127.0.0.1:8767/mcp", type: mcp}
+    dependsOn:
+      - {to: proxmox, label: reads the VM inventory}
+      - {to: vm-ai-hub, label: manages}
+      - {to: vm-installer, label: manages}
+      - {to: vm-semaphore, label: manages}
+      - {to: vm-keycloak, label: manages}
+      - {to: vm-observability, label: manages}
+    access: {method: none, howTo: "Local only; from elsewhere: ssh -L 8767:127.0.0.1:8767 <host>"}
+    source: seed
+
+  # ---------------------------------------------------------------- AI agents
+  - id: orchestrator
+    name: MCP orchestrator
+    kind: orchestrator
+    environment: lab
+    description: Coordinates the MCP agents; this command center imports its agent registry.
+    links:
+      - {label: Orchestrator UI, url: "http://127.0.0.1:8770/ui", type: ui}
+    access: {method: none, howTo: "Local only. Start with mcp-agents/agents.sh start"}
+    source: seed
+
+  - id: agent-devops
+    name: DevOps agent
+    kind: mcp-agent
+    environment: lab
+    description: Generates and runs Jenkins pipelines (build, push, deploy, health check, rollback).
+    tags: [agent, ci-cd]
+    links:
+      - {label: MCP endpoint, url: "http://127.0.0.1:8766/mcp", type: mcp}
+    dependsOn:
+      - {to: orchestrator, label: registered with}
+      - {to: jenkins, label: runs pipelines}
+    access: {method: token, credentialRef: "~/.ai-labs/tokens/devops.token (created by agents.sh)"}
+    source: orchestrator
+
+  - id: agent-kube
+    name: Kube agent
+    kind: mcp-agent
+    environment: lab
+    description: Manages Kubernetes through a service account, within its namespace policy.
+    tags: [agent, kubernetes]
+    links:
+      - {label: MCP endpoint, url: "http://127.0.0.1:8768/mcp", type: mcp}
+    dependsOn:
+      - {to: orchestrator, label: registered with}
+      - {to: kubernetes, label: manages (service account)}
+    access: {method: token, credentialRef: "~/.ai-labs/tokens/kube.token (created by agents.sh)"}
+    source: orchestrator
+
+  - id: vm-ai-hub
+    name: Worker agent – ai-hub
+    kind: mcp-agent
+    environment: lab
+    description: mcp-vm-worker-agent on the ai-hub VM.
+    tags: [vm-worker]
+    links: [{label: MCP endpoint, url: "http://192.168.1.122:8765/mcp", type: mcp}]
+    access: {method: token, credentialRef: "Password manager: Lab / worker tokens / ai-hub"}
+    source: seed
+
+  - id: vm-installer
+    name: Worker agent – installer
+    kind: mcp-agent
+    environment: lab
+    description: mcp-vm-worker-agent on the installer VM (also the Java/Maven build box).
+    tags: [vm-worker]
+    links: [{label: MCP endpoint, url: "http://192.168.1.44:8765/mcp", type: mcp}]
+    access: {method: token, credentialRef: "Password manager: Lab / worker tokens / installer"}
+    source: seed
+
+  - id: vm-semaphore
+    name: Worker agent – semaphore
+    kind: mcp-agent
+    environment: lab
+    description: mcp-vm-worker-agent on the Semaphore VM.
+    tags: [vm-worker]
+    links: [{label: MCP endpoint, url: "http://192.168.1.42:8765/mcp", type: mcp}]
+    access: {method: token, credentialRef: "Password manager: Lab / worker tokens / semaphore"}
+    source: seed
+
+  - id: vm-keycloak
+    name: Worker agent – keycloak
+    kind: mcp-agent
+    environment: lab
+    description: mcp-vm-worker-agent on the Keycloak VM.
+    tags: [vm-worker]
+    links: [{label: MCP endpoint, url: "http://192.168.1.143:8765/mcp", type: mcp}]
+    access: {method: token, credentialRef: "Password manager: Lab / worker tokens / keycloak"}
+    source: seed
+
+  - id: vm-observability
+    name: Worker agent – observability-server
+    kind: mcp-agent
+    environment: lab
+    description: mcp-vm-worker-agent on the observability VM (Grafana, Prometheus, OTel Collector).
+    tags: [vm-worker]
+    links: [{label: MCP endpoint, url: "http://192.168.1.137:8765/mcp", type: mcp}]
+    access: {method: token, credentialRef: "Password manager: Lab / worker tokens / observability-server"}
+    source: seed
+
+flows:
+  - id: ship-a-change
+    name: Ship a change
+    description: From a commit to a running, observed service.
+    steps:
+      - {from: github, to: jenkins, text: "You push a branch; the webhook starts the pipeline, which builds and tests."}
+      - {from: jenkins, to: harbor, text: "The pipeline builds a container image and pushes it; Harbor scans it for vulnerabilities."}
+      - {from: jenkins, to: kubernetes, text: "The pipeline deploys the new image (kubectl / Helm) to your namespace."}
+      - {from: kubernetes, to: harbor, text: "Nodes pull the image using the namespace's pull secret."}
+      - {from: kubernetes, to: spring-config-server, text: "At startup the service loads its configuration for its profile."}
+      - {from: kubernetes, to: otel-collector, text: "The service sends metrics, logs and traces over OTLP."}
+      - {from: otel-collector, to: prometheus, text: "The collector forwards metrics to Prometheus."}
+      - {from: grafana, to: prometheus, text: "You watch the rollout on your service's Grafana dashboard."}
+
+  - id: sign-in-once
+    name: Sign in once (SSO)
+    description: One Keycloak account for every tool.
+    steps:
+      - {from: grafana, to: keycloak, text: "Opening Grafana redirects you to Keycloak's login page."}
+      - {from: keycloak, text: "You log in once (with 2FA if enabled); Keycloak issues a session and tokens."}
+      - {from: semaphore, to: keycloak, text: "Semaphore and Harbor reuse the same session: no second password."}
+      - {from: kubernetes, to: keycloak, text: "kubectl logs in through kubelogin with the same account; groups become RBAC roles."}
+
+  - id: observe-a-service
+    name: Observe a service
+    description: How telemetry gets from your code to a dashboard.
+    steps:
+      - {from: kubernetes, to: otel-collector, text: "The OpenTelemetry Java agent in your pod exports to the collector (OTEL_EXPORTER_OTLP_ENDPOINT)."}
+      - {from: otel-collector, to: prometheus, text: "Metrics are pushed to Prometheus's OTLP receiver; service.name becomes the service_name label."}
+      - {from: grafana, to: prometheus, text: "Grafana queries Prometheus; build dashboards and alert rules there."}
+
+  - id: operate-with-agents
+    name: Operate with AI agents
+    description: Claude Code and the orchestrator do the hands-on work through MCP agents.
+    steps:
+      - {from: orchestrator, to: agent-kube, text: "You give the orchestrator a goal; it delegates the cluster part to the kube agent."}
+      - {from: agent-kube, to: kubernetes, text: "The kube agent inspects, scales or rolls back workloads within its namespace policy."}
+      - {from: orchestrator, to: agent-devops, text: "Build and deploy steps go to the devops agent."}
+      - {from: agent-devops, to: jenkins, text: "The devops agent generates and runs the Jenkins pipeline."}
+      - {from: vm-control-centre, to: vm-observability, text: "VM-level work (packages, services, files) goes through the VM control centre and the worker agents."}
+
+  - id: provision-the-platform
+    name: Provision the platform
+    description: How the lab itself is built.
+    steps:
+      - {from: proxmox, text: "VMs are cloned from Ubuntu 22.04 templates on the Proxmox cluster."}
+      - {from: semaphore, to: github, text: "Semaphore checks out the playbooks-library."}
+      - {from: semaphore, to: kubernetes, text: "The kubespray template installs or upgrades the cluster, then MetalLB."}
+      - {from: vm-control-centre, to: proxmox, text: "The VM control centre lists every VM and links it to its worker agent."}
