@@ -16,6 +16,7 @@ kubernetes/
 │       └── patches/               kubeadm patches (copied along; enable with kubeadm_patches)
 ├── kubespray/kubespray.sh         kubespray runner: pinned version + its own Ansible, live output
 ├── metallb.yml                    MetalLB + address pools + L2 advertisements
+├── nfs-client.yml                 nfs-common on the nodes + NAS export check
 ├── ping.yml                       SSH / sudo / OS check of every node, changes nothing
 ├── static-ip.yml                  pin each node's IP in netplan, one node at a time
 └── semaphore/bootstrap.py         creates/updates the Semaphore project, inventory and templates
@@ -27,6 +28,7 @@ kubernetes/
 |---|---|---|---|
 | `ping.yml` | Ansible | any inventory | Connectivity, Python, sudo, OS, uptime. First template to run for a new inventory or key. |
 | `static-ip.yml` | Ansible | Ubuntu (netplan) | Turns the current DHCP address into a static netplan config, disables cloud-init networking, applies it detached and waits for the node to return. `serial: 1`. |
+| `nfs-client.yml` | Ansible | `k8s_cluster` | Installs `nfs-common` on every node and lists the NAS exports. Only needed for pods that mount NFS directly; the NFS CSI driver does not need it. |
 | `metallb.yml` | Ansible | first `kube_control_plane` host | Installs/upgrades MetalLB from its native manifest and applies pools and L2 advertisements. Idempotent. |
 | `kubespray/kubespray.sh preflight` | Bash | inventory with kubespray layout | Checks SSH, sudo, OS and kubelet on every node. Changes nothing. |
 | `kubespray/kubespray.sh cluster` | Bash | | `cluster.yml`: deploy, or converge an existing cluster. Idempotent. |

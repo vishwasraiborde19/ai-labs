@@ -1,0 +1,30 @@
+---
+# Installs the NFS client (nfs-common) on every node and checks that the lab NAS's exports are visible.
+# Needed only for pods that mount NFS directly (an `nfs:` volume or a static PV with `nfs:`): the NFS CSI
+# driver (tool-box/kube/nfs-storage) mounts from its own container. Idempotent.
+#   target       host pattern (extra var), default k8s_cluster
+#   nfs_server   NAS to check (extra var), default 192.168.1.13; empty skips the check
+- name: NFS client
+  hosts: "{{ target | default('k8s_cluster') }}"
+  become: true
+  gather_facts: false
+  vars:
+    nfs_server: 192.168.1.13   # an extra var of the same name overrides it
+  tasks:
+    - name: nfs-common installed
+      ansible.builtin.apt:
+        name: nfs-common
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Exports visible from this node
+      ansible.builtin.command: showmount -e {{ nfs_server }}
+      register: exports
+      changed_when: false
+      check_mode: false   # read-only, so --check shows real values
+      when: nfs_server | length > 0
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg: "{{ exports.stdout_lines | default(['check skipped']) }}"

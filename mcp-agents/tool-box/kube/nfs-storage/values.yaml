@@ -1,0 +1,38 @@
+# csi-driver-nfs values: lets pods use the lab NAS (an NFS server outside the cluster) through a
+# StorageClass. install-nfs-storage.sh sets the server and share (--set), so this file is per-lab neutral.
+#
+#   PVC (storageClassName: nfs) ──▶ csi-driver-nfs creates <share>/<namespace>/<pvc-name> on the NAS
+#                                  ──▶ kubelet mounts it into the pod (NFSv4.1, from the driver's container)
+
+controller:
+  replicas: 1
+  runOnControlPlane: false
+node:
+  # The mount happens inside the driver's own container, so nodes do not need nfs-common for this.
+  livenessProbe:
+    healthPort: 29653
+
+externalSnapshotter:
+  enabled: false
+
+storageClass:
+  create: true
+  name: nfs
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"   # PVCs without a storageClassName land here
+  parameters:
+    server: CHANGEME          # set by install-nfs-storage.sh (NFS_SERVER)
+    share: /CHANGEME          # set by install-nfs-storage.sh (NFS_SHARE)
+    # One readable directory per claim. Re-creating a PVC with the same name reuses its data.
+    subDir: ${pvc.metadata.namespace}/${pvc.metadata.name}
+    # Pods run as many different UIDs; let them all write.
+    mountPermissions: "0777"
+    # When a PVC is deleted the directory is renamed archived-<name>, not deleted: clean up on the NAS.
+    onDelete: archive
+  reclaimPolicy: Delete
+  volumeBindingMode: Immediate
+  allowVolumeExpansion: true   # size is not enforced on NFS; expanding just updates the PVC
+  mountOptions:
+    - nfsvers=4.1
+    - hard
+    - noatime
