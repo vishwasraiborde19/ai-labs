@@ -1,0 +1,50 @@
+# Lets the kube-agent service account change things. Apply after rbac-read.yaml.
+#
+# - "edit" (built-in) in every namespace: workloads, services, config maps, secrets, jobs, ingresses,
+#   PVCs, ... but no RBAC and no namespaces. The agent itself still refuses to touch its
+#   protected-namespaces (kube-system, kube-public, kube-node-lease by default).
+#   To limit the agent to some namespaces, delete the kube-agent-edit ClusterRoleBinding and bind
+#   "edit" per namespace instead:
+#     kubectl -n team-a create rolebinding kube-agent-edit --clusterrole=edit --serviceaccount=kube-agent:kube-agent
+# - kube-agent-node-ops: cordon, uncordon and drain nodes (the agent also needs
+#   cluster-scoped-writes: true in its config to use them).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kube-agent-edit
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: edit
+subjects:
+  - kind: ServiceAccount
+    name: kube-agent
+    namespace: kube-agent
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kube-agent-node-ops
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/eviction"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kube-agent-node-ops
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kube-agent-node-ops
+subjects:
+  - kind: ServiceAccount
+    name: kube-agent
+    namespace: kube-agent

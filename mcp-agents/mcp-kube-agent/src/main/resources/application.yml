@@ -1,0 +1,29 @@
+# Built-in defaults. Your clusters go in an external file, by default ~/.kube-agent/config.yml
+# (override with KUBE_AGENT_CONFIG). See config/config.example.yml.
+spring:
+  application:
+    name: mcp-kube-agent
+  main:
+    banner-mode: off
+    web-application-type: none          # stdio mode: no web server, stdout belongs to MCP
+  config:
+    import: optional:file:${KUBE_AGENT_CONFIG:${user.home}/.kube-agent/config.yml}
+  ai:
+    mcp:
+      server:
+        name: kube-agent
+        version: 0.1.0
+        type: SYNC
+        stdio: true
+        instructions: >
+          Kubernetes operations agent working through a service account. Start with k8s_clusters,
+          then k8s_whoami to test a connection. Inspect with k8s_list, k8s_get, k8s_describe, k8s_nodes,
+          k8s_top. When something is broken run k8s_troubleshoot, then k8s_describe, k8s_events and
+          k8s_logs (previous=true for crashes). Change things with k8s_apply (dryRun=true first),
+          k8s_patch, k8s_scale, k8s_set_image, k8s_rollout_restart, k8s_rollout_undo, k8s_delete.
+          The agent's policy (read-only clusters, allowed and protected namespaces, cluster-scoped
+          writes) is enforced on top of RBAC; k8s_can_i explains both. Secret values are never shown.
+
+kube:
+  access:
+    cache-ttl: 5m

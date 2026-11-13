@@ -1,0 +1,23 @@
+# ~/.orchestrator/config.yml (or ORCHESTRATOR_CONFIG). Everything here is optional.
+# Agents, chains and LLM providers are managed in the UI and stored next to this file.
+
+server:
+  address: 127.0.0.1        # UI is loopback-only regardless; listen wider only for /registry/register
+  port: 8770
+
+orchestrator:
+  registration:
+    # Agents may POST /registry/register with this bearer token; they wait in the inbox until approved.
+    token-ref: env:ORCHESTRATOR_REGISTRATION_TOKEN
+  discovery:
+    # Probed every refresh; MCP servers that answer and are not on the team go to the inbox.
+    urls:
+      - url: http://127.0.0.1:8766/mcp
+        token-ref: env:DEVOPS_AGENT_TOKEN
+  limits:
+    refresh-ms: 60000
+    tool-timeout: 10m
+    max-turns: 30
+    max-tool-result-chars: 60000
+    max-runs: 300
+    approval-timeout: 30m

@@ -1,0 +1,39 @@
+# Built-in defaults. Override in ~/.orchestrator/config.yml (ORCHESTRATOR_CONFIG); see config/config.example.yml.
+# Agents, chains and LLM settings are edited in the UI and live in ~/.orchestrator (ORCHESTRATOR_HOME).
+spring:
+  application:
+    name: mcp-orchestrator-agent
+  main:
+    banner-mode: "off"
+  threads:
+    virtual:
+      enabled: true          # runs wait on LLM calls, MCP tools and human approvals
+  config:
+    import: optional:file:${ORCHESTRATOR_CONFIG:${user.home}/.orchestrator/config.yml}
+  mvc:
+    async:
+      request-timeout: 5m
+
+server:
+  address: ${ORCHESTRATOR_HOST:127.0.0.1}
+  port: ${ORCHESTRATOR_PORT:8770}
+  servlet:
+    session:
+      tracking-modes: []
+
+orchestrator:
+  home: ${ORCHESTRATOR_HOME:${user.home}/.orchestrator}
+  registration:
+    # Bearer token agents present to POST /registry/register. Empty: self-registration is off.
+    token-ref: ${ORCHESTRATOR_REGISTRATION_TOKEN_REF:}
+  discovery:
+    # MCP endpoints probed on every refresh; ones that answer and are not registered go to the inbox.
+    urls: []
+  limits:
+    refresh-ms: 60000            # agent health, tool lists and each agent's systems (clusters, Jenkins, VMs)
+    systems-health-ms: 300000    # per-system health tool (e.g. k8s_whoami on every cluster)
+    tool-timeout: 10m            # one MCP tool call
+    max-turns: 30                # LLM turns in one agent loop
+    max-tool-result-chars: 60000 # tool output handed to the LLM (longer output is cut, and the LLM is told)
+    max-runs: 300                # runs kept in history
+    approval-timeout: 30m        # a run waiting for approval fails after this

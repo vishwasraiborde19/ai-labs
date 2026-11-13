@@ -7,12 +7,16 @@
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
         <module name="mcp-devops-agent" />
+        <module name="mcp-orchestrator-agent" />
+        <module name="mcp-kube-agent" />
       </profile>
     </annotationProcessing>
   </component>
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">
       <module name="mcp-devops-agent" options="-parameters" />
+      <module name="mcp-kube-agent" options="-parameters" />
+      <module name="mcp-orchestrator-agent" options="-parameters" />
     </option>
   </component>
 </project>
