@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: design-robot-account-api
+expected_outcome: |
+  A resource-oriented design with correct methods and status codes, where the robot secret is returned only once on create/rotate, pagination on list, and authz noted.

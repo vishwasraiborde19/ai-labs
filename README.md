@@ -2,6 +2,7 @@
 
 | Project | What it is |
 |---|---|
+| [arch](arch/) | How the lab fits together: current-state context and flow diagrams, systems inventory with addresses, decision records (ADRs), design docs and open items. Start here. |
 | [command-center](command-center/) | Single entry point for developers: a catalog of every system, app and agent in the lab (Harbor, Kubernetes, Spring Cloud Config, Keycloak, observability, Proxmox, the MCP agents and the orchestrator) with links, how to log in (without storing secrets), live health and certificate expiry, usage guides per system, an agent directory with `claude mcp add` commands, and an architecture view with step-by-step flows of how the systems work together. |
 | [mcp-vm-worker-agent](mcp-agents/vm/mcp-vm-worker-agent/) | Agent you install on a VM so Claude Code (MCP) and scripts (REST) can run commands, jobs and file operations there. Includes a web UI for generating and revoking tokens. |
 | [mcp-vm-admin-agent](mcp-agents/vm/mcp-vm-admin-agent/) | Control centre for the worker agents: fleet dashboard, file browser and editor, terminal, background jobs, run-on-many-hosts, audit log and one-click agent upgrades, in a web UI and over MCP. |
