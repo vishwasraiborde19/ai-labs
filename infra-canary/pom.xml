@@ -10,7 +10,7 @@
     </parent>
     <groupId>com.ailabs</groupId>
     <artifactId>infra-canary</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
     <name>infra-canary</name>
     <description>Canary app: proves build, Harbor, Kubernetes, Longhorn and logging work end to end</description>
 
@@ -30,6 +30,11 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- /actuator/prometheus: JVM, HTTP and the canary_chaos_* / canary_mock_value metrics -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

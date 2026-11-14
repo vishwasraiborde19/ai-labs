@@ -1,0 +1,21 @@
+# Chaos console on the LAN: http://192.168.1.241/
+# publishNotReadyAddresses: the pod stays reachable here while its readiness probe fails (chaos
+# "refuse traffic"), so the fault can be switched off again. The normal Service (40) drops it as it should.
+apiVersion: v1
+kind: Service
+metadata:
+  name: infra-canary-console
+  namespace: infra-canary
+  labels:
+    app: infra-canary
+  annotations:
+    metallb.universe.tf/loadBalancerIPs: 192.168.1.241
+spec:
+  type: LoadBalancer
+  publishNotReadyAddresses: true
+  selector:
+    app: infra-canary
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080

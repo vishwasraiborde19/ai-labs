@@ -26,6 +26,9 @@ Registry setup (insecure HTTP registry for Docker and containerd, projects, robo
 | `POST /error` | an ERROR with a stack trace |
 | `POST /burst?lines=100000` | many ~250-byte lines fast, to watch log rotation |
 | `/actuator/health`, `/actuator/loggers` | probes; change log levels at runtime |
+| `/actuator/prometheus`, `/actuator/metrics` | JVM / HTTP metrics plus `canary_chaos_active{fault}` and `canary_mock_value{name}` |
+| `GET /` | chaos console (below) |
+| `/chaos/**` | chaos API (below) |
 
 A heartbeat INFO line is logged every 30 s, so an idle pod still shows it is logging.
 
@@ -34,6 +37,54 @@ A heartbeat INFO line is logged every 30 s, so an idle pod still shows it is log
 | `log-volume` | a probe file can be written, read back and deleted in `/app/logs/canary`; reports free space |
 | `dns` | `kubernetes.default.svc.cluster.local` resolves (CoreDNS) |
 | `http:<name>` | each `canary.http-targets` URL answers 2xx (Harbor, central Prometheus, Grafana; `k8s/20-config.yaml`) |
+
+## Chaos console: resiliency testing
+
+Open **http://192.168.1.241/** (Service `infra-canary-console`, MetalLB), or
+`kubectl -n infra-canary port-forward svc/infra-canary-console 8080:80` and http://localhost:8080/.
+The page shows live health, probes, heap, container memory, CPU and log-volume use, and switches faults
+on and off. Every fault can revert itself after N seconds; **Reset everything** clears all of them; a
+container restart clears them too (state is in memory). Every change is logged at WARN as `CHAOS ...`.
+
+| Fault | What really happens | What to watch |
+|---|---|---|
+| Actuator health DOWN / OUT_OF_SERVICE | `/actuator/health` → 503, component `chaos` with your reason | monitoring / Grafana health panels; probes stay green |
+| Readiness: refuse traffic | readiness probe 503 | pod `0/1` Ready, gone from `kubectl get endpoints infra-canary` |
+| Liveness: broken | liveness probe 503 | after ~30 s `RESTARTS` +1, event `Liveness probe failed` |
+| Memory, heap | real `byte[]` ballast (capped at 90% of max heap unless *allow OOM*) | `jvm_memory_used_bytes`, GC; with *allow OOM*: `OutOfMemoryError` in the log |
+| Memory, direct | off-heap buffers, touched | container memory → `limits.memory` (512Mi) → **OOMKilled** |
+| CPU burn | N busy threads for N s | `process_cpu_usage`, node CPU, throttling if a CPU limit is set |
+| Latency (+ jitter) | app requests delayed; *actuator too* delays probes | `http_server_requests_seconds`; probes time out after 1 s |
+| HTTP errors | X % of app requests answer the chosen 4xx/5xx | `http_server_requests_seconds_count{status=...}` |
+| Fill the log volume | writes `.chaos-fill` on the Longhorn volume | volume use in the Longhorn UI; at 100% the log-volume check of `/canary` fails |
+| Mock metric values | only publishes `canary_mock_value{name}` | drive Grafana panels / alert rules with chosen numbers |
+| Crash (exit / halt) | JVM stops | container restart, `CrashLoopBackOff` if repeated |
+
+The console page and `/chaos/**` are never slowed or failed by the faults, and the console Service
+publishes not-ready pods, so you can always switch a fault off from the page.
+
+**Safety.** Changes are refused (403) unless `canary.chaos.enabled=true` (set in `k8s/20-config.yaml`;
+default `false`). To require a token, put `canary.chaos.token` in a Secret and add it to the Deployment's
+`envFrom`; the page then asks for it (header `X-Chaos-Token`).
+
+API, for scripts (`seconds` = auto-revert, 0 = until cleared):
+
+```bash
+C=http://192.168.1.241
+curl -s $C/chaos/state | jq .faults
+curl -s -XPOST "$C/chaos/health?status=DOWN&reason=db+down&seconds=120"
+curl -s -XPOST "$C/chaos/readiness?refuse=true&seconds=60"
+curl -s -XPOST "$C/chaos/memory?mb=200&mode=heap&seconds=300"   ;  curl -s -XDELETE $C/chaos/memory
+curl -s -XPOST "$C/chaos/cpu?threads=2&seconds=60"
+curl -s -XPOST "$C/chaos/latency?ms=1500&jitter=500&seconds=120"
+curl -s -XPOST "$C/chaos/errors?percent=50&status=503&seconds=120"
+curl -s -XPOST "$C/chaos/disk?mb=300&seconds=600"
+curl -s -XPOST "$C/chaos/mock?name=memory_used_percent&value=95"
+curl -s -XPOST  $C/chaos/reset
+```
+
+Prometheus: the pod carries `prometheus.io/scrape` annotations, but the lab's cluster Prometheus does not
+discover pods by annotation yet; add a scrape job for `/actuator/prometheus` to graph these metrics.
 
 ## Logs
 
@@ -48,7 +99,7 @@ writable for it.
 
 ## Build the image
 
-Pick one. Both produce `192.168.1.173/infracanary/infra-canary:0.1.0`, non-root, logs under `/app/logs/canary`.
+Pick one. Both produce `192.168.1.173/infracanary/infra-canary:0.2.0`, non-root, logs under `/app/logs/canary`.
 
 ### Docker
 
@@ -62,22 +113,22 @@ echo "$HARBOR_TOKEN" | docker login 192.168.1.173 -u 'robot$infracanary+robo' --
 ```
 
 Build the jar with Maven (runs the tests), then the image from it (`Dockerfile` copies
-`target/infra-canary-0.1.0.jar`; other versions: `--build-arg JAR_FILE=target/infra-canary-<version>.jar`), and push:
+`target/infra-canary-0.2.0.jar`; other versions: `--build-arg JAR_FILE=target/infra-canary-<version>.jar`), and push:
 
 ```bash
 cd infra-canary
-mvn -B package                       # -> target/infra-canary-0.1.0.jar
-docker build -t 192.168.1.173/infracanary/infra-canary:0.1.0 -t 192.168.1.173/infracanary/infra-canary:latest .
-docker push 192.168.1.173/infracanary/infra-canary:0.1.0
+mvn -B package                       # -> target/infra-canary-0.2.0.jar
+docker build -t 192.168.1.173/infracanary/infra-canary:0.2.0 -t 192.168.1.173/infracanary/infra-canary:latest .
+docker push 192.168.1.173/infracanary/infra-canary:0.2.0
 docker push 192.168.1.173/infracanary/infra-canary:latest
 ```
 
 Try it locally before pushing (logs go to the container's own `/app/logs/canary`):
 
 ```bash
-docker run --rm -p 8080:8080 192.168.1.173/infracanary/infra-canary:0.1.0 &
+docker run --rm -p 8080:8080 192.168.1.173/infracanary/infra-canary:0.2.0 &
 curl -s localhost:8080/canary          # dns check fails outside Kubernetes: expected
-docker exec $(docker ps -qf ancestor=192.168.1.173/infracanary/infra-canary:0.1.0) tail -3 /app/logs/canary/infra-canary.log
+docker exec $(docker ps -qf ancestor=192.168.1.173/infracanary/infra-canary:0.2.0) tail -3 /app/logs/canary/infra-canary.log
 ```
 
 ### Jib (no Docker; used on the installer VM)
@@ -86,7 +137,7 @@ docker exec $(docker ps -qf ancestor=192.168.1.173/infracanary/infra-canary:0.1.
 cd infra-canary
 mvn -B test
 mvn -B compile jib:build -DsendCredentialsOverHttp=true -Djib.to.auth.username='robot$infracanary+robo' -Djib.to.auth.password="$HARBOR_TOKEN"
-# pushes :0.1.0 and :latest
+# pushes :0.2.0 and :latest
 ```
 
 Check the push: portal → *Projects → infracanary → Repositories → infra-canary*.
