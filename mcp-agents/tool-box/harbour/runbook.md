@@ -1,34 +1,35 @@
-b# Harbor runbook
+# Harbor runbook
 
 The lab's private container registry. Images are pushed here by developers and CI, and the Kubernetes
 cluster (proxmox01) pulls them from here.
 
 | | |
 |---|---|
-| Portal | http://192.168.1.34/harbor/projects |
-| Registry host (in image names) | `192.168.1.34` |
-| Version | Harbor v2.12.1, database auth (`auth_mode: db_auth`) |
+| Portal | http://192.168.1.173/harbor/projects |
+| Registry host (in image names) | `192.168.1.173` |
+| Version | Harbor v2.15.5 + Trivy, database auth (`auth_mode: db_auth`); VM `docker-registry-harbor`, data on `/data` (60G disk) |
+| Install / reinstall | Semaphore template `harbor` (playbook `semaphore/playbooks-library/registry/harbor.yml`); admin password: `sudo cat /root/harbor/admin-password` on the VM |
 | Protocol | **plain HTTP** (no TLS): every client must be told the registry is insecure, see below |
-| Health | `curl -s http://192.168.1.34/api/v2.0/health` (all components `healthy`) |
+| Health | `curl -s http://192.168.1.173/api/v2.0/health` (all components `healthy`) |
 
 ```
- developer / CI ──docker push / jib──▶ Harbor 192.168.1.34/<project>/<image>:<tag>
+ developer / CI ──docker push / jib──▶ Harbor 192.168.1.173/<project>/<image>:<tag>
                                               │
  Kubernetes node: containerd ◀──pull (HTTP)───┘   with the namespace's imagePullSecret (robot account)
 ```
 
-Image names are always `192.168.1.34/<project>/<repository>:<tag>`, e.g. `192.168.1.34/infracanary/infra-canary:0.1.0`.
+Image names are always `192.168.1.173/<project>/<repository>:<tag>`, e.g. `192.168.1.173/infracanary/infra-canary:0.1.0`.
 
 ---
 
-## 0. Harbor's own hostname must be 192.168.1.34
+## 0. Harbor's own hostname must be 192.168.1.173
 
 Harbor writes its configured `hostname` into the registry's login challenge. Every client (docker,
 Jib, containerd) is sent there to get a token before it may push or pull:
 
 ```bash
-curl -sI http://192.168.1.34/v2/ | grep -i www-authenticate
-# good: Bearer realm="http://192.168.1.34/service/token",service="harbor-registry"
+curl -sI http://192.168.1.173/v2/ | grep -i www-authenticate
+# good: Bearer realm="http://192.168.1.173/service/token",service="harbor-registry"
 # bad:  Bearer realm="http://192.168.0.90/service/token",...   <- old address, unreachable
 ```
 
@@ -41,13 +42,13 @@ Fix it on the Harbor VM, in the directory of the Harbor installer (the one with 
 cd <harbor installer dir>                       # e.g. ~/harbor or /opt/harbor
 grep -nE '^(hostname|external_url):' harbor.yml
 sudo cp harbor.yml harbor.yml.bak-$(date +%F)
-sudo sed -i 's/^hostname: .*/hostname: 192.168.1.34/' harbor.yml
-# if an external_url line is set (uncommented), point it at http://192.168.1.34 too
+sudo sed -i 's/^hostname: .*/hostname: 192.168.1.173/' harbor.yml
+# if an external_url line is set (uncommented), point it at http://192.168.1.173 too
 sudo docker compose down                        # registry is offline from here...
 sudo ./prepare                                  # regenerates the configs under ./common/config
 sudo docker compose up -d                       # ...to here (about a minute)
-curl -sI http://192.168.1.34/v2/ | grep -i www-authenticate      # realm now 192.168.1.34
-curl -s http://192.168.1.34/api/v2.0/health                      # all healthy
+curl -sI http://192.168.1.173/v2/ | grep -i www-authenticate      # realm now 192.168.1.173
+curl -s http://192.168.1.173/api/v2.0/health                      # all healthy
 ```
 
 Images, projects, users and robots live in Harbor's data volume (`data_volume` in `harbor.yml`,
@@ -73,7 +74,7 @@ IP) so the address does not change again.
    Copy the secret when it is shown: Harbor shows it **once** (later only *Refresh secret*).
 3. Store the secret in the password manager (**Lab / Harbor / robot$<name>**), never in a repository.
 
-The lab robot today: `robot$harbor-ai` (system robot). The project `infracanary` (used by
+The lab robot today: `robot$infracanary+robo` (project robot of `infracanary`). The project `infracanary` (used by
 [infra-canary](../../../infra-canary/)) must exist and the robot needs push + pull on it.
 
 **Rotate a robot secret**: robot → ⋮ → *Refresh secret*, then update the password manager, CI
@@ -83,8 +84,8 @@ credentials and every `harbor-pull` Secret in Kubernetes (section 4).
 
 ```bash
 read -rsp 'robot secret: ' HARBOR_TOKEN; echo
-curl -s -u 'robot$harbor-ai':"$HARBOR_TOKEN" \
-  'http://192.168.1.34/service/token?service=harbor-registry&scope=repository:infracanary/infra-canary:push,pull' \
+curl -s -u 'robot$infracanary+robo':"$HARBOR_TOKEN" \
+  'http://192.168.1.173/service/token?service=harbor-registry&scope=repository:infracanary/infra-canary:push,pull' \
   | python3 -c 'import json,sys,base64; t=json.load(sys.stdin)["token"].split(".")[1]; t+="="*(-len(t)%4); print(json.loads(base64.urlsafe_b64decode(t))["access"])'
 # [{'type': 'repository', 'name': 'infracanary/infra-canary', 'actions': ['pull', 'push']}]   <- good
 # 'actions': []  -> project missing, no permission, or wrong secret: Harbor then answers as anonymous
@@ -110,14 +111,14 @@ import json, os
 p = "/etc/docker/daemon.json"
 d = json.load(open(p)) if os.path.exists(p) and os.path.getsize(p) else {}
 r = d.setdefault("insecure-registries", [])
-if "192.168.1.34" not in r: r.append("192.168.1.34")
+if "192.168.1.173" not in r: r.append("192.168.1.173")
 json.dump(d, open(p, "w"), indent=2)
 print(json.dumps(d, indent=2))
 EOF
 sudo systemctl restart docker      # running containers stop, unless "live-restore": true is set
 docker info | grep -A3 'Insecure Registries'
 #  Insecure Registries:
-#   192.168.1.34
+#   192.168.1.173
 #   127.0.0.0/8
 ```
 
@@ -125,7 +126,7 @@ On a machine with no `daemon.json`, the result is simply:
 
 ```json
 {
-  "insecure-registries": ["192.168.1.34"]
+  "insecure-registries": ["192.168.1.173"]
 }
 ```
 
@@ -133,13 +134,13 @@ On a machine with no `daemon.json`, the result is simply:
 `/var/snap/docker/current/config/daemon.json` (same content), and the restart is `sudo snap restart docker`.
 
 **Docker Desktop (Windows / macOS)**: *Settings → Docker Engine*, add
-`"insecure-registries": ["192.168.1.34"]` to the JSON, *Apply & restart*.
+`"insecure-registries": ["192.168.1.173"]` to the JSON, *Apply & restart*.
 
 **Podman / Buildah**: `/etc/containers/registries.conf.d/harbor.conf`:
 
 ```toml
 [[registry]]
-location = "192.168.1.34"
+location = "192.168.1.173"
 insecure = true
 ```
 
@@ -148,8 +149,8 @@ insecure = true
 **Before the first login**, check the two things that make it fail:
 
 ```bash
-docker info | grep -A3 'Insecure Registries'                     # 1. lists 192.168.1.34 (2.1)
-curl -sI http://192.168.1.34/v2/ | grep -i www-authenticate       # 2. realm="http://192.168.1.34/service/token" (0)
+docker info | grep -A3 'Insecure Registries'                     # 1. lists 192.168.1.173 (2.1)
+curl -sI http://192.168.1.173/v2/ | grep -i www-authenticate       # 2. realm="http://192.168.1.173/service/token" (0)
 ```
 
 **Log in with the bare host**: no `http://`, no trailing `/`, no path. Docker always tries HTTPS on
@@ -160,7 +161,7 @@ names use.
 Interactive, with your own Harbor user (prompts for the password):
 
 ```bash
-docker login 192.168.1.34
+docker login 192.168.1.173
 # Username: <your Harbor user>
 # Password:
 # Login Succeeded
@@ -170,7 +171,7 @@ Scripts and CI: a robot account, secret on stdin so it never appears in the shel
 
 ```bash
 read -rsp 'robot secret: ' HARBOR_TOKEN; echo
-echo "$HARBOR_TOKEN" | docker login 192.168.1.34 -u 'robot$harbor-ai' --password-stdin
+echo "$HARBOR_TOKEN" | docker login 192.168.1.173 -u 'robot$infracanary+robo' --password-stdin
 # Login Succeeded
 ```
 
@@ -183,8 +184,8 @@ echo "$HARBOR_TOKEN" | docker login 192.168.1.34 -u 'robot$harbor-ai' --password
 Where the login is kept and how to check it:
 
 ```bash
-grep -A2 '"192.168.1.34"' ~/.docker/config.json     # "auths": {"192.168.1.34": {"auth": "..."}}
-docker logout 192.168.1.34                           # removes it
+grep -A2 '"192.168.1.173"' ~/.docker/config.json     # "auths": {"192.168.1.173": {"auth": "..."}}
+docker logout 192.168.1.173                           # removes it
 ```
 
 `~/.docker/config.json` holds the credential base64-encoded, **not encrypted**: on shared machines log
@@ -195,8 +196,8 @@ out afterwards, or install a credential helper (`docker-credential-pass` / `secr
 
 | Message | Cause / fix |
 |---|---|
-| `Get "https://192.168.1.34/v2/": dial tcp 192.168.1.34:443: connect: connection refused` | Docker tried HTTPS: `192.168.1.34` is not in `insecure-registries`, or Docker was not restarted after the change (2.1). Typing `http://` does not help |
-| `Error logging in to endpoint, trying next endpoint ... https://192.168.1.34` (info line) followed by success | normal: HTTPS was tried first, then HTTP |
+| `Get "https://192.168.1.173/v2/": dial tcp 192.168.1.173:443: connect: connection refused` | Docker tried HTTPS: `192.168.1.173` is not in `insecure-registries`, or Docker was not restarted after the change (2.1). Typing `http://` does not help |
+| `Error logging in to endpoint, trying next endpoint ... https://192.168.1.173` (info line) followed by success | normal: HTTPS was tried first, then HTTP |
 | hangs, then `Get "http://192.168.0.90/service/token...": ... i/o timeout` (or `no route to host`) | Harbor's `hostname` is stale; the token realm points to the old address (0) |
 | `unauthorized: authentication required` / `401 Unauthorized` | wrong user or password; for robots, the full name `robot$...` in single quotes and the current secret |
 | `http: server gave HTTP response to HTTPS client` | same as the first row |
@@ -204,10 +205,10 @@ out afterwards, or install a credential helper (`docker-credential-pass` / `secr
 ### 2.3 Tag, push, pull
 
 ```bash
-docker build -t 192.168.1.34/infracanary/infra-canary:0.1.0 .          # build with the full name, or
-docker tag infra-canary:0.1.0 192.168.1.34/infracanary/infra-canary:0.1.0   # tag an existing image
-docker push 192.168.1.34/infracanary/infra-canary:0.1.0
-docker pull 192.168.1.34/infracanary/infra-canary:0.1.0                 # from another machine
+docker build -t 192.168.1.173/infracanary/infra-canary:0.1.0 .          # build with the full name, or
+docker tag infra-canary:0.1.0 192.168.1.173/infracanary/infra-canary:0.1.0   # tag an existing image
+docker push 192.168.1.173/infracanary/infra-canary:0.1.0
+docker pull 192.168.1.173/infracanary/infra-canary:0.1.0                 # from another machine
 ```
 
 The pushed image shows under *Projects → infracanary → Repositories → infra-canary*, with tags, digest, size
@@ -218,7 +219,9 @@ and (if a scanner is configured) vulnerabilities.
 Maven can build and push an image with no Docker daemon (used on the installer VM, which has no Docker):
 
 ```bash
-mvn -B compile jib:build -Djib.to.auth.username='robot$harbor-ai' -Djib.to.auth.password="$HARBOR_TOKEN"
+mvn -B compile jib:build -DsendCredentialsOverHttp=true -Djib.to.auth.username='robot$infracanary+robo' -Djib.to.auth.password="$HARBOR_TOKEN"
+# -DsendCredentialsOverHttp=true: Harbor is plain HTTP; without it Jib refuses with
+# "Required credentials ... were not sent because the connection was over HTTP".
 ```
 
 The pom needs `<allowInsecureRegistries>true</allowInsecureRegistries>` for plain HTTP
@@ -237,16 +240,16 @@ containerd_registries_mirrors:
   - prefix: docker.io                       # kubespray's default, repeated (this list replaces it)
     mirrors:
       - {host: https://registry-1.docker.io, capabilities: [pull, resolve], skip_verify: false}
-  - prefix: 192.168.1.34                    # Harbor, plain HTTP
+  - prefix: 192.168.1.173                    # Harbor, plain HTTP
     mirrors:
-      - {host: http://192.168.1.34, capabilities: [pull, resolve]}
+      - {host: http://192.168.1.173, capabilities: [pull, resolve]}
 ```
 
 which renders into `/etc/containerd/config.toml`:
 
 ```toml
-[plugins."io.containerd.grpc.v1.cri".registry.mirrors."192.168.1.34"]
-  endpoint = ["http://192.168.1.34"]
+[plugins."io.containerd.grpc.v1.cri".registry.mirrors."192.168.1.173"]
+  endpoint = ["http://192.168.1.173"]
 ```
 
 **Apply** (Semaphore, project *proxmox01*). The change must be pushed to the branch Semaphore checks out.
@@ -255,8 +258,8 @@ which renders into `/etc/containerd/config.toml`:
    first). It rewrites `config.toml` and restarts containerd; running pods keep running.
 2. Check that node:
    ```bash
-   ssh vishwas@192.168.1.104 "sudo grep -A1 '192.168.1.34' /etc/containerd/config.toml"
-   ssh vishwas@192.168.1.104 "sudo crictl pull --creds 'robot\$harbor-ai:<secret>' 192.168.1.34/infracanary/infra-canary:0.1.0"
+   ssh vishwas@192.168.1.104 "sudo grep -A1 '192.168.1.173' /etc/containerd/config.toml"
+   ssh vishwas@192.168.1.104 "sudo crictl pull --creds 'robot\$infracanary+robo:<secret>' 192.168.1.173/infracanary/infra-canary:0.1.0"
    kubectl get node kube-node-001          # Ready
    ```
 3. Same template with only `--tags=containerd` for every node.
@@ -272,7 +275,7 @@ A private project needs credentials in every namespace that pulls from it:
 ```bash
 read -rsp 'robot secret: ' HARBOR_TOKEN; echo
 kubectl -n <namespace> create secret docker-registry harbor-pull \
-  --docker-server=192.168.1.34 --docker-username='robot$harbor-ai' --docker-password="$HARBOR_TOKEN"
+  --docker-server=192.168.1.173 --docker-username='robot$infracanary+robo' --docker-password="$HARBOR_TOKEN"
 ```
 
 Reference it in the pod spec:
@@ -282,7 +285,7 @@ spec:
   imagePullSecrets:
     - name: harbor-pull
   containers:
-    - image: 192.168.1.34/infracanary/infra-canary:0.1.0
+    - image: 192.168.1.173/infracanary/infra-canary:0.1.0
 ```
 
 or attach it to the namespace's default ServiceAccount so every pod gets it:
@@ -294,8 +297,8 @@ kubectl -n <namespace> patch serviceaccount default -p '{"imagePullSecrets":[{"n
 After rotating the robot secret, replace the Secret in place:
 
 ```bash
-kubectl -n <namespace> create secret docker-registry harbor-pull --docker-server=192.168.1.34 \
-  --docker-username='robot$harbor-ai' --docker-password="$HARBOR_TOKEN" --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n <namespace> create secret docker-registry harbor-pull --docker-server=192.168.1.173 \
+  --docker-username='robot$infracanary+robo' --docker-password="$HARBOR_TOKEN" --dry-run=client -o yaml | kubectl apply -f -
 ```
 
 ---
@@ -307,11 +310,11 @@ Kubernetes → logs on a Longhorn volume (`/app/logs/canary`). In short (details
 
 ```bash
 cd infra-canary
-docker build -t 192.168.1.34/infracanary/infra-canary:0.1.0 .
-docker push 192.168.1.34/infracanary/infra-canary:0.1.0
+docker build -t 192.168.1.173/infracanary/infra-canary:0.1.0 .
+docker push 192.168.1.173/infracanary/infra-canary:0.1.0
 kubectl apply -f k8s/00-namespace.yaml
-kubectl -n infra-canary create secret docker-registry harbor-pull --docker-server=192.168.1.34 \
-  --docker-username='robot$harbor-ai' --docker-password="$HARBOR_TOKEN"
+kubectl -n infra-canary create secret docker-registry harbor-pull --docker-server=192.168.1.173 \
+  --docker-username='robot$infracanary+robo' --docker-password="$HARBOR_TOKEN"
 kubectl apply -f k8s/
 kubectl -n infra-canary rollout status deploy/infra-canary
 kubectl -n infra-canary port-forward svc/infra-canary 8080:8080 & curl -s localhost:8080/canary   # "status":"OK"
@@ -324,14 +327,14 @@ kubectl -n infra-canary port-forward svc/infra-canary 8080:8080 & curl -s localh
 | Symptom | Cause / fix |
 |---|---|
 | `http: server gave HTTP response to HTTPS client` from docker | registry not in `insecure-registries`, or Docker not restarted (2.1) |
-| same message in `kubectl describe pod` events | containerd on that node has no `http://192.168.1.34` mirror (3) |
-| `docker login` fails with `Get "https://192.168.1.34/v2/"` | same as the first row |
+| same message in `kubectl describe pod` events | containerd on that node has no `http://192.168.1.173` mirror (3) |
+| `docker login` fails with `Get "https://192.168.1.173/v2/"` | same as the first row |
 | `unauthorized to access repository` on push | robot lacks push on the project, or the project does not exist (1) |
 | `denied: requested access to the resource is denied` | wrong project in the image name, or `robot$...` not single-quoted in the shell |
 | `ErrImagePull` / `ImagePullBackOff` with `401` / `pull access denied` | no `harbor-pull` Secret in the namespace, not in `imagePullSecrets`, or stale after rotation (4) |
 | `not found` / `manifest unknown` | that tag was never pushed: check *Repositories* in the portal |
 | robot token check shows `'actions': []` | project missing, no permission, or wrong secret (1) |
-| login/push/pull try `192.168.0.90` (or time out) although you used `192.168.1.34` | Harbor's `hostname` is stale: the token realm points to the old address (0) |
+| login/push/pull try `192.168.0.90` (or time out) although you used `192.168.1.173` | Harbor's `hostname` is stale: the token realm points to the old address (0) |
 
 ```bash
 kubectl -n <ns> describe pod <pod> | sed -n '/Events/,$p'        # pull errors

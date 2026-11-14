@@ -13,6 +13,7 @@
 #                             it in the login (token realm) and in the portal's push commands
 #   harbor_http_port          80
 #   harbor_data_volume        /data (images, database, job logs; put it on a big disk)
+#   harbor_data_device        optional whole disk for harbor_data_volume, e.g. /dev/sdb (formatted only if blank)
 #   harbor_with_trivy         true (vulnerability scanning)
 #
 # Secrets are generated on the VM on first run and never leave it:
@@ -42,6 +43,61 @@
           - harbor_installer_sha256 is defined and harbor_installer_sha256 | length == 64
           - hostname is match('^[A-Za-z0-9.-]+$')
         fail_msg: Ubuntu only; set harbor_installer_sha256 (64 hex chars) and a plain harbor_hostname
+
+    # ------------------------------------------------------------------ data disk (optional)
+    # harbor_data_device (e.g. /dev/sdb): a whole, unpartitioned disk mounted at data_volume by UUID.
+    # It is formatted ext4 only when it has no filesystem and no partitions; an existing filesystem is
+    # mounted as-is, never reformatted.
+    - name: Data disk on {{ data_volume }}
+      when: harbor_data_device | default('') | length > 0
+      block:
+        - name: Data disk state
+          ansible.builtin.shell: |
+            set -e
+            echo "type=$(blkid -o value -s TYPE {{ harbor_data_device }} || true)"
+            echo "parts=$(lsblk -n -o NAME {{ harbor_data_device }} | tail -n +2 | wc -l)"
+            echo "mounted=$(mountpoint -q {{ data_volume }} && echo yes || echo no)"
+            echo "nonempty=$([ -d {{ data_volume }} ] && [ -n "$(ls -A {{ data_volume }})" ] && echo yes || echo no)"
+          register: disk
+          changed_when: false
+          check_mode: false
+
+        - name: Refuse unsafe disks
+          ansible.builtin.assert:
+            that:
+              - "'parts=0' in disk.stdout_lines"
+              - "'mounted=yes' in disk.stdout_lines or 'nonempty=no' in disk.stdout_lines"
+            fail_msg: >-
+              {{ harbor_data_device }} has partitions, or {{ data_volume }} already holds files on the root disk.
+              Sort it out by hand: {{ disk.stdout_lines }}
+
+        - name: ext4 on the blank disk
+          ansible.builtin.command: mkfs.ext4 -q -L harbor-data {{ harbor_data_device }}
+          when: "'type=' in disk.stdout_lines"
+
+        - name: Disk UUID
+          ansible.builtin.command: blkid -o value -s UUID {{ harbor_data_device }}
+          register: uuid
+          changed_when: false
+          check_mode: false
+
+        - name: fstab entry
+          ansible.builtin.lineinfile:
+            path: /etc/fstab
+            regexp: '^\S+\s+{{ data_volume | regex_escape }}\s'
+            line: "UUID={{ uuid.stdout }} {{ data_volume }} {{ (disk.stdout_lines | select('match', '^type=.') | first | default('type=ext4'))[5:] }} defaults,nofail 0 2"
+            backup: true
+
+        - name: Mount point
+          ansible.builtin.file:
+            path: "{{ data_volume }}"
+            state: directory
+            mode: "0755"
+
+        - name: Mounted
+          ansible.builtin.shell: mountpoint -q {{ data_volume }} && echo already || { mount {{ data_volume }} && echo mounted; }
+          register: mnt
+          changed_when: "'mounted' == mnt.stdout"
 
     # ------------------------------------------------------------------ Docker Engine
     - name: Distro Docker packages are absent (they conflict with docker-ce)
@@ -198,9 +254,11 @@
       delay: 10
       check_mode: false
 
+    # Harbor builds the realm from the request's Host header, so ask the way clients do: by harbor_hostname.
+    # This also proves the hostname reaches this VM.
     - name: Login challenge points at harbor_hostname
       ansible.builtin.uri:
-        url: "http://127.0.0.1:{{ http_port }}/v2/"
+        url: "http://{{ hostname }}{{ ':' ~ http_port if http_port | int != 80 else '' }}/v2/"
         status_code: 401
       register: v2
       failed_when: >-
