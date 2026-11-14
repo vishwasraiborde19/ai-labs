@@ -85,7 +85,7 @@ docker exec $(docker ps -qf ancestor=192.168.1.173/infracanary/infra-canary:0.1.
 ```bash
 cd infra-canary
 mvn -B test
-mvn -B compile jib:build -Djib.to.auth.username='robot$infracanary+robo' -Djib.to.auth.password="$HARBOR_TOKEN"
+mvn -B compile jib:build -DsendCredentialsOverHttp=true -Djib.to.auth.username='robot$infracanary+robo' -Djib.to.auth.password="$HARBOR_TOKEN"
 # pushes :0.1.0 and :latest
 ```
 

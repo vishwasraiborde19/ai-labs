@@ -219,7 +219,9 @@ and (if a scanner is configured) vulnerabilities.
 Maven can build and push an image with no Docker daemon (used on the installer VM, which has no Docker):
 
 ```bash
-mvn -B compile jib:build -Djib.to.auth.username='robot$infracanary+robo' -Djib.to.auth.password="$HARBOR_TOKEN"
+mvn -B compile jib:build -DsendCredentialsOverHttp=true -Djib.to.auth.username='robot$infracanary+robo' -Djib.to.auth.password="$HARBOR_TOKEN"
+# -DsendCredentialsOverHttp=true: Harbor is plain HTTP; without it Jib refuses with
+# "Required credentials ... were not sent because the connection was over HTTP".
 ```
 
 The pom needs `<allowInsecureRegistries>true</allowInsecureRegistries>` for plain HTTP
