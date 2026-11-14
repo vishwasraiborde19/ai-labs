@@ -26,7 +26,7 @@ spec:
       - name: harbor-pull     # robot account with pull on Harbor project "infracanary" (tool-box/harbour/runbook.md)
       containers:
       - name: infra-canary
-        image: 192.168.1.34/infracanary/infra-canary:0.1.0
+        image: 192.168.1.173/infracanary/infra-canary:0.1.0
         imagePullPolicy: Always
         ports:
         - containerPort: 8080

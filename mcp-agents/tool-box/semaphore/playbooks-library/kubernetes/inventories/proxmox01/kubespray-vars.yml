@@ -5,8 +5,8 @@ helm_enabled: true
 kube_proxy_mode: iptables
 
 # containerd registries. This replaces kubespray's default list, so docker.io is repeated as-is.
-# Harbor (192.168.1.34) serves plain HTTP: the http:// endpoint makes containerd pull without TLS.
-# Image names stay "192.168.1.34/<project>/<image>:<tag>"; credentials come from imagePullSecrets.
+# Harbor (192.168.1.173) serves plain HTTP: the http:// endpoint makes containerd pull without TLS.
+# Image names stay "192.168.1.173/<project>/<image>:<tag>"; credentials come from imagePullSecrets.
 # Apply: Semaphore "Kubespray: deploy / converge" with CLI args --tags=containerd (restarts containerd;
 # running pods keep running). Try one node first: --tags=containerd --limit=kube-node-001
 containerd_registries_mirrors:
@@ -15,7 +15,7 @@ containerd_registries_mirrors:
       - host: https://registry-1.docker.io
         capabilities: ["pull", "resolve"]
         skip_verify: false
-  - prefix: 192.168.1.34
+  - prefix: 192.168.1.173
     mirrors:
-      - host: http://192.168.1.34
+      - host: http://192.168.1.173
         capabilities: ["pull", "resolve"]

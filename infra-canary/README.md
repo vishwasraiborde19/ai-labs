@@ -3,7 +3,7 @@
 A small Spring Boot app whose only job is to prove the lab's delivery path works end to end:
 
 ```
- docker build / mvn jib ──push──▶ Harbor 192.168.1.34/infracanary/infra-canary ──pull──▶ Kubernetes (ns infra-canary)
+ docker build / mvn jib ──push──▶ Harbor 192.168.1.173/infracanary/infra-canary ──pull──▶ Kubernetes (ns infra-canary)
                                                                                    │
                          Longhorn PVC infra-canary-logs (replica on nas-server) ◀──┤ /app/logs/canary/infra-canary.log
                                                                                    └ GET /canary: volume, DNS, Harbor,
@@ -48,7 +48,7 @@ writable for it.
 
 ## Build the image
 
-Pick one. Both produce `192.168.1.34/infracanary/infra-canary:0.1.0`, non-root, logs under `/app/logs/canary`.
+Pick one. Both produce `192.168.1.173/infracanary/infra-canary:0.1.0`, non-root, logs under `/app/logs/canary`.
 
 ### Docker
 
@@ -56,9 +56,9 @@ One-time: Harbor serves plain HTTP, so add it to Docker's `insecure-registries` 
 ([runbook §2](../mcp-agents/tool-box/harbour/runbook.md#2-docker-add-the-registry-log-in-push-pull)):
 
 ```bash
-# /etc/docker/daemon.json  ->  { "insecure-registries": ["192.168.1.34"] }   then: sudo systemctl restart docker
+# /etc/docker/daemon.json  ->  { "insecure-registries": ["192.168.1.173"] }   then: sudo systemctl restart docker
 read -rsp 'robot secret: ' HARBOR_TOKEN; echo
-echo "$HARBOR_TOKEN" | docker login 192.168.1.34 -u 'robot$harbor-ai' --password-stdin
+echo "$HARBOR_TOKEN" | docker login 192.168.1.173 -u 'robot$infracanary+robo' --password-stdin
 ```
 
 Build the jar with Maven (runs the tests), then the image from it (`Dockerfile` copies
@@ -67,17 +67,17 @@ Build the jar with Maven (runs the tests), then the image from it (`Dockerfile` 
 ```bash
 cd infra-canary
 mvn -B package                       # -> target/infra-canary-0.1.0.jar
-docker build -t 192.168.1.34/infracanary/infra-canary:0.1.0 -t 192.168.1.34/infracanary/infra-canary:latest .
-docker push 192.168.1.34/infracanary/infra-canary:0.1.0
-docker push 192.168.1.34/infracanary/infra-canary:latest
+docker build -t 192.168.1.173/infracanary/infra-canary:0.1.0 -t 192.168.1.173/infracanary/infra-canary:latest .
+docker push 192.168.1.173/infracanary/infra-canary:0.1.0
+docker push 192.168.1.173/infracanary/infra-canary:latest
 ```
 
 Try it locally before pushing (logs go to the container's own `/app/logs/canary`):
 
 ```bash
-docker run --rm -p 8080:8080 192.168.1.34/infracanary/infra-canary:0.1.0 &
+docker run --rm -p 8080:8080 192.168.1.173/infracanary/infra-canary:0.1.0 &
 curl -s localhost:8080/canary          # dns check fails outside Kubernetes: expected
-docker exec $(docker ps -qf ancestor=192.168.1.34/infracanary/infra-canary:0.1.0) tail -3 /app/logs/canary/infra-canary.log
+docker exec $(docker ps -qf ancestor=192.168.1.173/infracanary/infra-canary:0.1.0) tail -3 /app/logs/canary/infra-canary.log
 ```
 
 ### Jib (no Docker; used on the installer VM)
@@ -85,7 +85,7 @@ docker exec $(docker ps -qf ancestor=192.168.1.34/infracanary/infra-canary:0.1.0
 ```bash
 cd infra-canary
 mvn -B test
-mvn -B compile jib:build -Djib.to.auth.username='robot$harbor-ai' -Djib.to.auth.password="$HARBOR_TOKEN"
+mvn -B compile jib:build -Djib.to.auth.username='robot$infracanary+robo' -Djib.to.auth.password="$HARBOR_TOKEN"
 # pushes :0.1.0 and :latest
 ```
 
@@ -97,17 +97,17 @@ Prerequisites (once per cluster / namespace):
 
 1. Harbor project **infracanary** exists and the robot has push + pull on it
    ([runbook §1](../mcp-agents/tool-box/harbour/runbook.md#1-projects-and-robot-accounts)).
-2. Every node's containerd accepts `http://192.168.1.34`
+2. Every node's containerd accepts `http://192.168.1.173`
    ([runbook §3](../mcp-agents/tool-box/harbour/runbook.md#3-kubernetes-nodes-let-containerd-pull-over-http)).
 3. The pull secret, below.
 
 ```bash
 kubectl apply -f k8s/00-namespace.yaml
-kubectl -n infra-canary create secret docker-registry harbor-pull --docker-server=192.168.1.34 \
-  --docker-username='robot$harbor-ai' --docker-password="$HARBOR_TOKEN"
+kubectl -n infra-canary create secret docker-registry harbor-pull --docker-server=192.168.1.173 \
+  --docker-username='robot$infracanary+robo' --docker-password="$HARBOR_TOKEN"
 kubectl apply -f k8s/
 kubectl -n infra-canary rollout status deploy/infra-canary
-kubectl -n infra-canary get pod -o wide          # Running; image pulled from 192.168.1.34
+kubectl -n infra-canary get pod -o wide          # Running; image pulled from 192.168.1.173
 kubectl -n infra-canary get pvc                  # infra-canary-logs  Bound  longhorn
 ```
 

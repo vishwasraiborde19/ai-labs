@@ -1,7 +1,7 @@
 # infra-canary image (Docker build) from the jar Maven already built. Equivalent to the Jib build in pom.xml.
 #   mvn -B package                                   -> target/infra-canary-0.1.0.jar
-#   docker build -t 192.168.1.34/infracanary/infra-canary:0.1.0 .
-#   docker push  192.168.1.34/infracanary/infra-canary:0.1.0      (registry setup: tool-box/harbour/runbook.md)
+#   docker build -t 192.168.1.173/infracanary/infra-canary:0.1.0 .
+#   docker push  192.168.1.173/infracanary/infra-canary:0.1.0      (registry setup: tool-box/harbour/runbook.md)
 # Another version: docker build --build-arg JAR_FILE=target/infra-canary-<version>.jar ...
 FROM eclipse-temurin:17-jre
 

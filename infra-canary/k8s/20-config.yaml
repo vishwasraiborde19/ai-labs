@@ -12,6 +12,6 @@ data:
   heartbeat.interval: "30s"
   # GET /canary also calls these (NAME=URL, comma separated) and expects 2xx.
   canary.http-targets: >-
-    harbor=http://192.168.1.34/api/v2.0/health,
+    harbor=http://192.168.1.173/api/v2.0/health,
     prometheus=http://192.168.1.137:9090/-/healthy,
     grafana=http://192.168.1.137:3000/api/health
