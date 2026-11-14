@@ -254,9 +254,11 @@
       delay: 10
       check_mode: false
 
+    # Harbor builds the realm from the request's Host header, so ask the way clients do: by harbor_hostname.
+    # This also proves the hostname reaches this VM.
     - name: Login challenge points at harbor_hostname
       ansible.builtin.uri:
-        url: "http://127.0.0.1:{{ http_port }}/v2/"
+        url: "http://{{ hostname }}{{ ':' ~ http_port if http_port | int != 80 else '' }}/v2/"
         status_code: 401
       register: v2
       failed_when: >-
