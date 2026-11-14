@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: pvc-browser-page
+expected_outcome: |
+  A new view in command-center's static/ui following the house pattern (h() helper, api() wrapper, hash route, tokens), with loading/empty/error states, a type-to-confirm delete, and a matching API endpoint.

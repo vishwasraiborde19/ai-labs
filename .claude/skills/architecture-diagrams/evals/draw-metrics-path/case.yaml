@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: draw-metrics-path
+expected_outcome: |
+  A Mermaid data-flow diagram, built from repo facts, showing cluster-monitoring remote-writing to Prometheus on 192.168.1.137 and Grafana reading it, with the blocked Longhorn scrape and unscraped app metrics shown dashed, added to arch/README.md.

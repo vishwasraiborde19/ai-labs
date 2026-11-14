@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Canary Chaos Console</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --text: #1d2330; --muted: #667085; --line: #e3e6eb;
+    --ok: #138a4b; --ok-bg: #e6f5ec; --bad: #c62828; --bad-bg: #fdecec; --warn: #a35a00; --warn-bg: #fff4e0;
+    --accent: #2f5bd3; --accent-bg: #e9efff; --bar: #dfe3ea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1b2029; --text: #e6e9ef; --muted: #98a1b2; --line: #2b3240;
+      --ok: #4cc38a; --ok-bg: #173325; --bad: #ff7b72; --bad-bg: #3a1d1d; --warn: #f0b45a; --warn-bg: #3a2c14;
+      --accent: #7aa2ff; --accent-bg: #1e2a48; --bar: #2b3240;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 16px 20px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; }
+  header h1 { font-size: 18px; margin: 0; }
+  .meta { color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .meta b { color: var(--text); font-weight: 600; }
+  .spacer { flex: 1; }
+  main { padding: 16px 20px 40px; max-width: 1400px; margin: 0 auto; }
+  .banner { padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; background: var(--warn-bg); color: var(--warn); }
+  .banner.hidden { display: none; }
+  .status { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 18px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+  .tile .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .tile .v { font-size: 18px; font-weight: 650; margin-top: 2px; overflow-wrap: anywhere; }
+  .tile .s { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+  .bar { height: 6px; background: var(--bar); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+  .bar.hot > i { background: var(--bad); }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .card.active { border-color: var(--bad); box-shadow: 0 0 0 1px var(--bad) inset; }
+  .card h2 { font-size: 15px; margin: 0; display: flex; align-items: center; gap: 8px; }
+  .card p { margin: 0; color: var(--muted); font-size: 13px; }
+  .badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--ok-bg); color: var(--ok); white-space: nowrap; }
+  .badge.on { background: var(--bad-bg); color: var(--bad); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+  label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+  label.inline { flex-direction: row; align-items: center; gap: 6px; color: var(--text); font-size: 13px; }
+  input, select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; min-width: 0; }
+  input[type=number] { width: 96px; }
+  input[type=text], input[type=password] { width: 160px; }
+  button { font: inherit; font-weight: 600; border: 1px solid transparent; border-radius: 7px; padding: 7px 12px; cursor: pointer; background: var(--accent); color: #fff; }
+  button.secondary { background: transparent; color: var(--text); border-color: var(--line); }
+  button.danger { background: var(--bad); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .now { font-size: 12px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td { padding: 3px 4px; border-bottom: 1px solid var(--line); }
+  td:last-child { text-align: right; }
+  #log { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-top: 18px; padding: 10px 14px; max-height: 280px; overflow: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #log div { white-space: pre-wrap; overflow-wrap: anywhere; border-bottom: 1px dashed var(--line); padding: 3px 0; }
+  .wide { grid-column: 1 / -1; }
+  @media (max-width: 520px) { header, main { padding-left: 16px; padding-right: 16px; } .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>🐤 infra-canary · chaos console</h1>
+  <div class="meta">
+    <span>pod <b id="m-pod">…</b></span><span>node <b id="m-node">…</b></span>
+    <span>ns <b id="m-ns">…</b></span><span>v<b id="m-ver">…</b></span>
+  </div>
+  <div class="spacer"></div>
+  <label id="tokenBox" class="inline" style="display:none">token <input id="token" type="password" placeholder="X-Chaos-Token" autocomplete="off"></label>
+  <button class="danger" onclick="call('POST','/chaos/reset')">Reset everything</button>
+</header>
+
+<main>
+  <div id="disabled" class="banner hidden">Chaos is <b>disabled</b> on this pod: changes are refused. Set <code>canary.chaos.enabled: "true"</code> in the ConfigMap and restart the pod. Reading still works.</div>
+  <div id="unreach" class="banner hidden">The pod is not answering (restarting, or behind a NotReady Service). Retrying…</div>
+
+  <section class="status" aria-label="live status">
+    <div class="tile"><div class="k">/actuator/health</div><div class="v" id="s-health">…</div><div class="s" id="s-health-s"></div></div>
+    <div class="tile"><div class="k">readiness probe</div><div class="v" id="s-ready">…</div><div class="s">Service endpoints</div></div>
+    <div class="tile"><div class="k">liveness probe</div><div class="v" id="s-live">…</div><div class="s">kubelet restarts on 3 fails</div></div>
+    <div class="tile"><div class="k">heap</div><div class="v" id="s-heap">…</div><div class="bar" id="b-heap"><i></i></div></div>
+    <div class="tile"><div class="k">container memory</div><div class="v" id="s-cmem">…</div><div class="bar" id="b-cmem"><i></i></div></div>
+    <div class="tile"><div class="k">process cpu</div><div class="v" id="s-cpu">…</div><div class="bar" id="b-cpu"><i></i></div></div>
+    <div class="tile"><div class="k">log volume</div><div class="v" id="s-vol">…</div><div class="bar" id="b-vol"><i></i></div><div class="s" id="s-vol-s"></div></div>
+    <div class="tile"><div class="k">uptime</div><div class="v" id="s-up">…</div><div class="s" id="s-up-s">container restarts reset it</div></div>
+  </section>
+
+  <section class="grid">
+    <div class="card" data-fault="health">
+      <h2>Actuator health <span class="badge">off</span></h2>
+      <p>Sets component <code>chaos</code> of <code>/actuator/health</code>. Monitoring sees DOWN (HTTP 503); Kubernetes probes are not affected.</p>
+      <div class="row">
+        <label>status <select id="h-status"><option>DOWN</option><option>OUT_OF_SERVICE</option><option>UNKNOWN</option><option>UP</option></select></label>
+        <label>reason <input id="h-reason" type="text" value="database unreachable (simulated)"></label>
+        <label>revert after s <input id="h-sec" type="number" min="0" value="120"></label>
+      </div>
+      <div class="row">
+        <button onclick="call('POST','/chaos/health',{status:v('h-status'),reason:v('h-reason'),seconds:v('h-sec')})">Apply</button>
+        <button class="secondary" onclick="call('POST','/chaos/health',{status:'UP'})">Back to UP</button>
+      </div>
+      <div class="now"></div>
+    </div>
+
+    <div class="card" data-fault="readiness">
+      <h2>Readiness: refuse traffic <span class="badge">off</span></h2>
+      <p>Readiness probe answers 503: the pod turns NotReady and leaves the Service endpoints. Use the <b>control</b> address (publishes not-ready pods) to keep this page reachable.</p>
+      <div class="row"><label>revert after s <input id="r-sec" type="number" min="0" value="60"></label></div>
+      <div class="row">
+        <button onclick="call('POST','/chaos/readiness',{refuse:true,seconds:v('r-sec')})">Refuse traffic</button>
+        <button class="secondary" onclick="call('POST','/chaos/readiness',{refuse:false})">Accept traffic</button>
+      </div>
+      <div class="now"></div>
+    </div>
+
+    <div class="card" data-fault="liveness">
+      <h2>Liveness: broken <span class="badge">off</span></h2>
+      <p>Liveness probe answers 503. After 3 failed probes (~30 s) the kubelet <b>restarts the container</b>, which clears every fault. Watch RESTARTS in <code>kubectl get pod</code>.</p>
+      <div class="row"><label>revert after s (0 = until restart) <input id="l-sec" type="number" min="0" value="0"></label></div>
+      <div class="row">
+        <button class="danger" onclick="confirm('Break liveness? Kubernetes will restart this container.') && call('POST','/chaos/liveness',{broken:true,seconds:v('l-sec')})">Break liveness</button>
+        <button class="secondary" onclick="call('POST','/chaos/liveness',{broken:false})">Correct</button>
+      </div>
+      <div class="now"></div>
+    </div>
+
+    <div class="card" data-fault="memory">
+      <h2>Memory pressure <span class="badge">off</span></h2>
+      <p>Really allocates and touches memory. <b>heap</b> raises <code>jvm_memory_used_bytes</code> (capped at 90% of max heap unless OOM is allowed). <b>direct</b> is off-heap: enough of it gets the container <b>OOMKilled</b> at <code>limits.memory</code>.</p>
+      <div class="row">
+        <label>MiB <input id="m-mb" type="number" min="1" value="128"></label>
+        <label>mode <select id="m-mode"><option>heap</option><option>direct</option></select></label>
+        <label>revert after s <input id="m-sec" type="number" min="0" value="300"></label>
+        <label class="inline"><input id="m-oom" type="checkbox"> allow OOM</label>
+      </div>
+      <div class="row">
+        <button onclick="call('POST','/chaos/memory',{mb:v('m-mb'),mode:v('m-mode'),allowOom:chk('m-oom'),seconds:v('m-sec')})">Allocate</button>
+        <button class="secondary" onclick="call('DELETE','/chaos/memory')">Release</button>
+      </div>
+      <div class="now"></div>
+    </div>
+
+    <div class="card" data-fault="cpu">
+      <h2>CPU burn <span class="badge">off</span></h2>
+      <p>Busy-loop threads. With a CPU limit you see throttling (<code>container_cpu_cfs_throttled</code>); without one, the node's CPU rises. Probes may slow down.</p>
+      <div class="row">
+        <label>threads <input id="c-thr" type="number" min="1" value="1"></label>
+        <label>stop after s <input id="c-sec" type="number" min="0" value="60"></label>
+      </div>
+      <div class="row">
+        <button onclick="call('POST','/chaos/cpu',{threads:v('c-thr'),seconds:v('c-sec')})">Burn</button>
+        <button class="secondary" onclick="call('DELETE','/chaos/cpu')">Stop</button>
+      </div>
+      <div class="now"></div>
+    </div>
+
+    <div class="card" data-fault="latency">
+      <h2>Latency <span class="badge">off</span></h2>
+      <p>Delays every app request (<code>/canary</code>, <code>/hello</code>, …). Tick <i>actuator too</i> to slow the probes as well: past the 1 s probe timeout they count as failures.</p>
+      <div class="row">
+        <label>ms <input id="t-ms" type="number" min="0" value="1500"></label>
+        <label>+ jitter ms <input id="t-jit" type="number" min="0" value="500"></label>
+        <label>revert after s <input id="t-sec" type="number" min="0" value="120"></label>
+        <label class="inline"><input id="t-act" type="checkbox"> actuator too</label>
+      </div>
+      <div class="row">
+        <button onclick="call('POST','/chaos/latency',{ms:v('t-ms'),jitter:v('t-jit'),actuator:chk('t-act'),seconds:v('t-sec')})">Apply</button>
+        <button class="secondary" onclick="call('DELETE','/chaos/latency')">Clear</button>
+      </div>
+      <div class="now"></div>
+    </div>
+
+    <div class="card" data-fault="errors">
+      <h2>HTTP errors <span class="badge">off</span></h2>
+      <p>A share of app requests fail with the chosen status (actuator and this console are never failed). Shows up in <code>http_server_requests_seconds_count{status="5xx"}</code>.</p>
+      <div class="row">
+        <label>% of requests <input id="e-pct" type="number" min="0" max="100" value="50"></label>
+        <label>status <input id="e-st" type="number" min="400" max="599" value="503"></label>
+        <label>revert after s <input id="e-sec" type="number" min="0" value="120"></label>
+      </div>
+      <div class="row">
+        <button onclick="call('POST','/chaos/errors',{percent:v('e-pct'),status:v('e-st'),seconds:v('e-sec')})">Apply</button>
+        <button class="secondary" onclick="call('DELETE','/chaos/errors')">Clear</button>
+        <button class="secondary" onclick="hammer()">Send 20 × /hello</button>
+      </div>
+      <div class="now"></div>
+    </div>
+
+    <div class="card" data-fault="disk">
+      <h2>Fill the log volume <span class="badge">off</span></h2>
+      <p>Writes <code>.chaos-fill</code> next to the log file: the Longhorn volume (replica on nas-server). Fill it completely to see the app's log writes and <code>/canary</code> log-volume check fail.</p>
+      <div class="row">
+        <label>MiB <input id="d-mb" type="number" min="1" value="200"></label>
+        <label>delete after s <input id="d-sec" type="number" min="0" value="600"></label>
+      </div>
+      <div class="row">
+        <button onclick="call('POST','/chaos/disk',{mb:v('d-mb'),seconds:v('d-sec')})">Fill</button>
+        <button class="secondary" onclick="fillAll()">Fill to 100%</button>
+        <button class="secondary" onclick="call('DELETE','/chaos/disk')">Delete fill</button>
+      </div>
+      <div class="now"></div>
+    </div>
+
+    <div class="card">
+      <h2>Mock metric values</h2>
+      <p>Only numbers: published as <code>canary_mock_value{name="…"}</code> on <code>/actuator/prometheus</code> to drive Grafana panels and alert rules without stressing anything.</p>
+      <div class="row">
+        <label>name <input id="k-name" type="text" list="k-presets" value="memory_used_percent"></label>
+        <datalist id="k-presets">
+          <option value="memory_used_percent"><option value="cpu_used_percent"><option value="disk_used_percent">
+          <option value="error_rate_percent"><option value="queue_depth"><option value="response_time_ms"><option value="db_connections_active">
+        </datalist>
+        <label>value <input id="k-val" type="number" step="any" value="95"></label>
+      </div>
+      <div class="row">
+        <button onclick="call('POST','/chaos/mock',{name:v('k-name'),value:v('k-val')})">Set</button>
+        <button class="secondary" onclick="call('DELETE','/chaos/mock')">Clear all</button>
+      </div>
+      <table id="mocks"></table>
+    </div>
+
+    <div class="card">
+      <h2>Logs &amp; checks</h2>
+      <p>Existing canary endpoints: everything lands in <code>/app/logs/canary/infra-canary.log</code>.</p>
+      <div class="row">
+        <button class="secondary" onclick="call('GET','/canary')">Run /canary</button>
+        <button class="secondary" onclick="call('GET','/hello')">/hello</button>
+        <button class="secondary" onclick="call('POST','/error')">Log an ERROR + stack</button>
+      </div>
+      <div class="row">
+        <label>level <select id="g-lvl"><option>INFO</option><option>WARN</option><option>ERROR</option><option>DEBUG</option></select></label>
+        <label>lines <input id="g-n" type="number" min="1" value="10"></label>
+        <button class="secondary" onclick="call('POST','/log',{level:v('g-lvl'),count:v('g-n'),msg:'from chaos console'})">Write</button>
+      </div>
+      <div class="row">
+        <label>burst lines <input id="g-burst" type="number" min="1" value="100000"></label>
+        <button class="secondary" onclick="call('POST','/burst',{lines:v('g-burst')})">Burst (rotation)</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Crash the JVM</h2>
+      <p><b>exit</b> runs shutdown hooks (like SIGTERM); <b>halt</b> stops at once (like a segfault). Either way Kubernetes restarts the container (CrashLoopBackOff if repeated quickly).</p>
+      <div class="row">
+        <label>exit code <input id="x-code" type="number" value="1"></label>
+        <button class="danger" onclick="confirm('Exit the JVM?') && call('POST','/chaos/crash',{mode:'exit',code:v('x-code')})">Exit</button>
+        <button class="danger" onclick="confirm('Halt the JVM?') && call('POST','/chaos/crash',{mode:'halt',code:v('x-code')})">Halt</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="log" aria-label="activity"></div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const v = id => $(id).value;
+const chk = id => $(id).checked;
+let last = null;
+
+try { $('token').value = sessionStorage.getItem('chaosToken') || ''; } catch (e) {}
+$('token').addEventListener('change', () => { try { sessionStorage.setItem('chaosToken', v('token')); } catch (e) {} });
+
+function logLine(text, cls) {
+  const d = document.createElement('div');
+  d.textContent = new Date().toLocaleTimeString() + '  ' + text;
+  if (cls) d.className = cls;
+  $('log').prepend(d);
+  while ($('log').children.length > 200) $('log').lastChild.remove();
+}
+
+async function fetchJson(method, url, timeoutMs = 4000) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  const headers = {};
+  if (v('token')) headers['X-Chaos-Token'] = v('token');
+  try {
+    const r = await fetch(url, { method, headers, signal: ctl.signal });
+    const text = await r.text();
+    let body; try { body = JSON.parse(text); } catch (e) { body = text; }
+    return { status: r.status, body };
+  } finally { clearTimeout(timer); }
+}
+
+async function call(method, path, params) {
+  const qs = params ? '?' + new URLSearchParams(Object.entries(params).map(([k, x]) => [k, String(x)])) : '';
+  try {
+    const r = await fetchJson(method, path + qs, 130000);
+    const b = r.body && r.body.faults ? '(state updated)' : JSON.stringify(r.body && r.body.state ? { ...r.body, state: undefined } : r.body);
+    logLine(`${method} ${path}${qs} → ${r.status} ${b || ''}`, r.status >= 400 ? 'bad' : '');
+  } catch (e) {
+    logLine(`${method} ${path}${qs} → ${e.name === 'AbortError' ? 'timeout' : e.message}`, 'bad');
+  }
+  refresh();
+}
+
+async function hammer() {
+  const counts = {};
+  await Promise.all(Array.from({ length: 20 }, async () => {
+    try { const r = await fetchJson('GET', '/hello', 130000); counts[r.status] = (counts[r.status] || 0) + 1; }
+    catch (e) { counts.failed = (counts.failed || 0) + 1; }
+  }));
+  logLine('20 × GET /hello → ' + Object.entries(counts).map(([k, n]) => `${k}: ${n}`).join(', '));
+}
+
+function fillAll() {
+  if (!last) return;
+  const free = last.resources.volumeFreeMb;
+  if (free > 0 && confirm(`Write ${free} MiB to fill ${last.resources.volumeDir} completely?`)) call('POST', '/chaos/disk', { mb: free, seconds: v('d-sec') });
+}
+
+function setBar(id, used, max) {
+  const pct = max > 0 ? Math.min(100, used * 100 / max) : 0;
+  $(id).querySelector('i').style.width = pct + '%';
+  $(id).classList.toggle('hot', pct >= 85);
+}
+
+function probeText(el, r) {
+  const st = r && r.body && r.body.status;
+  el.textContent = st ? `${st} (${r.status})` : 'no answer';
+  el.className = 'v ' + (st === 'UP' ? 'ok' : st === 'UNKNOWN' ? 'warn' : 'bad');
+}
+
+function fmtUntil(iso) {
+  const s = Math.max(0, Math.round((new Date(iso) - Date.now()) / 1000));
+  return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+}
+
+async function refresh() {
+  let s;
+  try { s = (await fetchJson('GET', '/chaos/state')).body; }
+  catch (e) { $('unreach').classList.remove('hidden'); return; }
+  if (!s || !s.faults) { $('unreach').classList.remove('hidden'); return; }
+  $('unreach').classList.add('hidden');
+  last = s;
+  $('m-pod').textContent = s.pod; $('m-node').textContent = s.node; $('m-ns').textContent = s.namespace; $('m-ver').textContent = s.version;
+  $('disabled').classList.toggle('hidden', s.enabled);
+  $('tokenBox').style.display = s.tokenRequired ? '' : 'none';
+
+  const r = s.resources;
+  $('s-heap').textContent = `${r.heapUsedMb} / ${r.heapMaxMb} MiB`; setBar('b-heap', r.heapUsedMb, r.heapMaxMb);
+  if (r.containerUsedMb != null) {
+    $('s-cmem').textContent = `${r.containerUsedMb} / ${r.containerLimitMb ?? '∞'} MiB`;
+    setBar('b-cmem', r.containerUsedMb, r.containerLimitMb || 0);
+  } else { $('s-cmem').textContent = 'n/a'; }
+  $('s-cpu').textContent = `${r.processCpuPercent ?? '?'}% of ${r.cpus} cpu`; setBar('b-cpu', r.processCpuPercent || 0, 100);
+  if (r.volumeTotalMb != null) {
+    const used = r.volumeTotalMb - r.volumeFreeMb;
+    $('s-vol').textContent = `${used} / ${r.volumeTotalMb} MiB`; setBar('b-vol', used, r.volumeTotalMb);
+    $('s-vol-s').textContent = r.volumeDir;
+  } else { $('s-vol').textContent = 'n/a'; $('s-vol-s').textContent = r.volumeError || ''; }
+
+  for (const card of document.querySelectorAll('.card[data-fault]')) {
+    const f = s.faults[card.dataset.fault];
+    const badge = card.querySelector('.badge');
+    card.classList.toggle('active', f.active);
+    badge.classList.toggle('on', f.active);
+    badge.textContent = f.active ? (f.revertsAt ? `ON · reverts in ${fmtUntil(f.revertsAt)}` : 'ON') : 'off';
+    const now = card.querySelector('.now');
+    const d = { ...f }; delete d.active; delete d.revertsAt;
+    now.textContent = Object.entries(d).map(([k, x]) => `${k}: ${x}`).join(' · ');
+  }
+
+  $('mocks').innerHTML = '';
+  for (const [name, val] of Object.entries(s.mocks)) {
+    const tr = document.createElement('tr');
+    const a = document.createElement('td'); a.textContent = name;
+    const b = document.createElement('td'); b.textContent = val;
+    const c = document.createElement('td');
+    const x = document.createElement('button'); x.className = 'secondary'; x.textContent = '✕';
+    x.onclick = () => call('DELETE', '/chaos/mock', { name });
+    c.appendChild(x); tr.append(a, b, c); $('mocks').appendChild(tr);
+  }
+
+  const [h, rd, lv] = await Promise.allSettled([
+    fetchJson('GET', '/actuator/health'), fetchJson('GET', '/actuator/health/readiness'), fetchJson('GET', '/actuator/health/liveness')]);
+  const val = p => p.status === 'fulfilled' ? p.value : null;
+  probeText($('s-health'), val(h)); probeText($('s-ready'), val(rd)); probeText($('s-live'), val(lv));
+  const comps = val(h) && val(h).body && val(h).body.components;
+  $('s-health-s').textContent = comps ? Object.entries(comps).filter(([, c]) => c.status !== 'UP').map(([n, c]) => `${n}: ${c.status}`).join(', ') || 'all components UP' : '';
+  try {
+    const info = await fetchJson('GET', '/actuator/metrics/process.uptime');
+    const sec = Math.round(info.body.measurements[0].value);
+    $('s-up').textContent = sec >= 3600 ? `${Math.floor(sec / 3600)}h ${Math.floor(sec % 3600 / 60)}m` : sec >= 60 ? `${Math.floor(sec / 60)}m ${sec % 60}s` : `${sec}s`;
+  } catch (e) { $('s-up').textContent = '?'; }
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

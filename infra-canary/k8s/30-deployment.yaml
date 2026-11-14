@@ -16,6 +16,10 @@ spec:
     metadata:
       labels:
         app: infra-canary
+      annotations:              # for a Prometheus that discovers pods by annotation
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: /actuator/prometheus
     spec:
       securityContext:
         runAsNonRoot: true
@@ -26,7 +30,7 @@ spec:
       - name: harbor-pull     # robot account with pull on Harbor project "infracanary" (tool-box/harbour/runbook.md)
       containers:
       - name: infra-canary
-        image: 192.168.1.173/infracanary/infra-canary:0.1.0
+        image: vishwasraiborde19/infra-canary-img
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
@@ -38,12 +42,20 @@ spec:
           valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
         - name: POD_NAMESPACE
           valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+        # Written out (these are the defaults) because the chaos console tests them: readiness drops the pod
+        # from Service 40 after 3 x 5s; liveness restarts the container after 3 x 10s; 1s timeout each.
         readinessProbe:
           httpGet: {path: /actuator/health/readiness, port: 8080}
           initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 1
+          failureThreshold: 3
         livenessProbe:
           httpGet: {path: /actuator/health/liveness, port: 8080}
           initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 1
+          failureThreshold: 3
         resources:
           requests: {cpu: 50m, memory: 256Mi}
           limits: {memory: 512Mi}

@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: new-app-ui-from-starter
+expected_outcome: |
+  Starts from the lab starter kit in static/ui with tokens and dark mode, adds the two views with proper states, a /ui/api backend that returns policy and audit (no secret values), and a MockMvc test that the page is served.

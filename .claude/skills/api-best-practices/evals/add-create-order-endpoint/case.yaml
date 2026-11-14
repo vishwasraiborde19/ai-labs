@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: add-create-order-endpoint
+expected_outcome: |
+  A controller, request record and tests that return 201 with a Location header, validate input at the edge, and return RFC 7807 problem details for errors.

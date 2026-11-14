@@ -15,3 +15,6 @@ data:
     harbor=http://192.168.1.173/api/v2.0/health,
     prometheus=http://192.168.1.137:9090/-/healthy,
     grafana=http://192.168.1.137:3000/api/health
+  # Chaos console (http://192.168.1.241/, Service 41): lets the UI break this pod on purpose.
+  # "false" makes every change answer 403. Optional: canary.chaos.token from a Secret.
+  canary.chaos.enabled: "true"

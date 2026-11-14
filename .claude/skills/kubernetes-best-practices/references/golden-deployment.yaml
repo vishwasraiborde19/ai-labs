@@ -1,0 +1,154 @@
+# Golden template for an HTTP app on proxmox01. Replace <app>, <ns>, <version>, <ip>.
+# Every field here answers an item in SKILL.md's checklist; delete only with a reason.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: <app>
+  namespace: <ns>
+automountServiceAccountToken: false        # the app does not call the Kubernetes API
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: <app>
+  namespace: <ns>
+data:
+  SPRING_PROFILES_ACTIVE: "k8s"
+  SERVER_SHUTDOWN: "graceful"
+  SPRING_LIFECYCLE_TIMEOUTPERSHUTDOWNPHASE: "20s"   # env form of spring.lifecycle.timeout-per-shutdown-phase
+  MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+---
+# Created out of band, never committed with values:
+#   kubectl -n <ns> create secret generic <app> --from-file=DB_PASSWORD=./db-password
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: <app>
+  namespace: <ns>
+  labels:
+    app.kubernetes.io/name: <app>
+    app.kubernetes.io/part-of: ai-labs
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels: {app.kubernetes.io/name: <app>}      # stable subset: selectors are immutable
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: <app>
+        app.kubernetes.io/part-of: ai-labs
+        app.kubernetes.io/version: "<version>"
+    spec:
+      serviceAccountName: <app>
+      terminationGracePeriodSeconds: 40                 # > preStop + shutdown phase
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      imagePullSecrets:
+      - name: harbor-pull
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels: {app.kubernetes.io/name: <app>}
+      containers:
+      - name: <app>
+        image: 192.168.1.173/<project>/<app>:<version>  # pinned tag (or @sha256:...)
+        imagePullPolicy: IfNotPresent
+        ports:
+        - {name: http, containerPort: 8080}
+        envFrom:
+        - configMapRef: {name: <app>}
+        env:
+        - name: DB_PASSWORD
+          valueFrom: {secretKeyRef: {name: <app>, key: DB_PASSWORD}}
+        - name: JAVA_TOOL_OPTIONS
+          value: "-XX:MaxRAMPercentage=75"
+        resources:
+          requests: {cpu: 100m, memory: 384Mi}
+          limits: {memory: 512Mi}                       # no CPU limit: avoid throttling
+        startupProbe:                                   # covers slow JVM start; liveness waits for it
+          httpGet: {path: /actuator/health/liveness, port: http}
+          periodSeconds: 5
+          failureThreshold: 30                          # up to 150 s to start
+        readinessProbe:
+          httpGet: {path: /actuator/health/readiness, port: http}
+          periodSeconds: 5
+          timeoutSeconds: 1
+          failureThreshold: 3
+        livenessProbe:                                  # never checks dependencies
+          httpGet: {path: /actuator/health/liveness, port: http}
+          periodSeconds: 10
+          timeoutSeconds: 1
+          failureThreshold: 3
+        lifecycle:
+          preStop:
+            exec: {command: ["sh", "-c", "sleep 5"]}    # let endpoints drop the pod before shutdown
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: {drop: [ALL]}
+        volumeMounts:
+        - {name: tmp, mountPath: /tmp}
+      volumes:
+      - name: tmp
+        emptyDir: {sizeLimit: 256Mi}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: <app>
+  namespace: <ns>
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: <app>}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: <app>
+  namespace: <ns>
+  labels: {app.kubernetes.io/name: <app>}
+spec:
+  selector: {app.kubernetes.io/name: <app>}
+  ports:
+  - {name: http, port: 8080, targetPort: http}
+# LAN access instead: type: LoadBalancer + annotation metallb.universe.tf/loadBalancerIPs: <ip>
+# (pool 192.168.1.230-250; check `kubectl get svc -A | grep LoadBalancer`, record it in arch/README.md)
+---
+# Default deny for the namespace, then allow only what is needed.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: <ns>
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: <app>
+  namespace: <ns>
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: <app>}
+  policyTypes: [Ingress, Egress]
+  ingress:
+  - ports: [{port: 8080}]            # narrow with from: namespaceSelector / podSelector
+  egress:
+  - to:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+    ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
+  # - to: [{ipBlock: {cidr: 192.168.1.137/32}}]      # e.g. OTLP 4318 to the observability VM
+  #   ports: [{port: 4318}]

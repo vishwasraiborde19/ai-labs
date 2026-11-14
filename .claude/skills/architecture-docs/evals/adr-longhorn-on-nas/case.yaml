@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: adr-longhorn-on-nas
+expected_outcome: |
+  A new ADR in arch/adr/ (next number) with status, context, decision, alternatives and consequences, honest about the NAS being a single point of failure for all volumes, and indexed in arch/adr/README.md.

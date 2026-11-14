@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: design-agent-fleet-status
+expected_outcome: |
+  A design that leads with an overall summary, distinguishes offline/unreachable/unknown from failing, shows freshness, uses word+colour badges, and makes the upgrade/revoke actions safe.

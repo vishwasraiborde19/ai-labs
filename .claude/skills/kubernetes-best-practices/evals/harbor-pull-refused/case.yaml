@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: harbor-pull-refused
+expected_outcome: |
+  Explains that Harbor serves plain HTTP and containerd on the node is trying HTTPS, and points to the containerd HTTP mirror (kubespray-vars containerd_registries_mirrors applied via Semaphore with --tags=containerd) as the fix.

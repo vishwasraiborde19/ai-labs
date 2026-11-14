@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: harbor-context-in-runbook
+expected_outcome: |
+  A context diagram inserted near the top of mcp-agents/tool-box/harbour/runbook.md showing Harbor at 192.168.1.173 with its clients and the Semaphore playbook that installs it, protocols on arrows, pending containerd path dashed, no secrets.
