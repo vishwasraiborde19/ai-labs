@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: review-chaos-console
+expected_outcome: |
+  A grounded UX review of the console: keeps what works (status tiles, auto-revert badges, confirmations), and raises concrete issues such as missing freshness/staleness indication, colour-plus-text status, form labels/units, error placement and keyboard/accessibility, prioritised with concrete changes.
